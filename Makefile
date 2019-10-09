@@ -23,3 +23,9 @@ clear-db:
 clear-chroot:
 	echo 'Deleting dev chroot...'
 	./make/clear-cached-chroot.sh
+
+
+.PHONY: build-dev
+build-dev:
+	echo 'Building dev container...'
+	docker build -t hpiicpc/judge-dev:latest ${CI+--cache-from hpiicpc/judge-dev:latest} docker/dev
