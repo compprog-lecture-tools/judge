@@ -1,0 +1,14 @@
+/configure
+/autom4te.cache
+/config.log
+/config.status
+/config.cache
+/paths.mk
+/aclocal.m4
+/bin
+/output
+/cov-int
+/domjudge-scan.tar.xz
+/coverity-scan.tar.xz
+/cov-submit-data*.sh
+*.o

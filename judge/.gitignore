@@ -1,0 +1,6 @@
+/chroot-startstop.sh
+/judgedaemon
+/runguard
+/runpipe
+/evict
+/domjudge-judgehost.service
