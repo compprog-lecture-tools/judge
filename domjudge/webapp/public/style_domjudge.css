@@ -113,15 +113,6 @@ del {
     padding: 0.5rem;
 }
 
-#lastmod {
-    position: absolute; right: 1ex; margin-top: 1em;
-}
-#lastmod, #lastmod a {
-    font-size: x-small;
-    color: gray;
-    text-align: right;
-}
-
 .center { margin: 0px auto; }
 
 .scoreboard {
@@ -398,4 +389,15 @@ h3.teamoverview {
 .error-template {
     padding: 40px 15px;
     text-align: center;
+}
+
+.imprint-notice {
+    font-size: x-small;
+}
+
+.hpilogo {
+    margin-left: 1rem;
+}
+.hpilogo img {
+    height: 2.5rem;
 }

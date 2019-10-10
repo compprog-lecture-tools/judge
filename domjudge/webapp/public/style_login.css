@@ -67,3 +67,7 @@ div.vertical-line{
   height: 230px;
   display: inline-block;
 }
+
+.imprint-notice {
+    font-size: x-small;
+}

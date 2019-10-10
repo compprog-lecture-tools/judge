@@ -31,6 +31,9 @@
                 {% block content %}{{ body|raw }}{% endblock %}
             </div>
         </div>
+        <div class="float-right">
+            {% include 'partials/imprint_notice.html.twig' %}
+        </div>
     </div>
 {% endblock %}
 
