@@ -1,3 +1,4 @@
-/domjudge.tar.gz
-/chroot.tar.gz
-/judgehost.tar.gz
+/web/web.tar
+/web/docs.tar
+/judgehost/judgehost.tar
+/judgehost/chroot.tar
