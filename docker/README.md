@@ -9,3 +9,4 @@ The changes made from that are:
  * Enable building from source instead of a release archive
  * Combine archive building steps for web and judgehost containers
  * Add `WEB_PREFIX` option
+ * Add numerous php and nginx options (`PHP_*`, `NGINX_*`)

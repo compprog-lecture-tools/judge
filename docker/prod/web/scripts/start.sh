@@ -18,10 +18,10 @@ echo "[ok] Container timezone set to: ${CONTAINER_TIMEZONE}"; echo
 echo "[..] Changing nginx and PHP configuration settings"
 # Set correct settings
 sed -ri -e "s/^user.*/user www-data;/" /etc/nginx/nginx.conf
-sed -ri -e "s/^upload_max_filesize.*/upload_max_filesize = 100M/" \
-	-e "s/^post_max_size.*/post_max_size = 100M/" \
-	-e "s/^memory_limit.*/memory_limit = 2G/" \
-	-e "s/^max_file_uploads.*/max_file_uploads = 200/" \
+sed -ri -e "s/^upload_max_filesize.*/upload_max_filesize = ${PHP_UPLOAD_MAX_FILESIZE}/" \
+	-e "s/^post_max_size.*/post_max_size = ${PHP_POST_MAX_SIZE}/" \
+	-e "s/^memory_limit.*/memory_limit = ${PHP_MEMORY_LIMIT}/" \
+	-e "s/^max_file_uploads.*/max_file_uploads = ${PHP_UPLOAD_MAX_FILESIZE}/" \
 	-e "s#^;date\.timezone.*#date.timezone = ${CONTAINER_TIMEZONE}#" \
 	 /etc/php/7.3/fpm/php.ini
 echo "[ok] Done changing nginx and PHP configuration settings"; echo
@@ -141,30 +141,32 @@ then
 		cp etc/nginx-conf-inner /etc/nginx/snippets/domjudge-inner
 		NGINX_CONFIG_FILE=/etc/nginx/snippets/domjudge-inner
 		sed -i 's/\/opt\/domjudge\/domserver\/etc\/nginx-conf-inner/\/etc\/nginx\/snippets\/domjudge-inner/' /etc/nginx/sites-enabled/default
-        if [[ -z "$WEB_PREFIX" ]]; then
-            # Run DOMjudge in root
-            sed -i '/^# location \//,/^# \}/ s/# //' $NGINX_CONFIG_FILE
-            sed -i '/^location \/domjudge/,/^\}/ s/^/#/' $NGINX_CONFIG_FILE
-            sed -i 's/\/domjudge;/"";/' $NGINX_CONFIG_FILE
-        else
-            # Run DOMjudge at the specified path
-            sed -i "s@^set \\\$prefix /domjudge;\$@set \$prefix ${WEB_PREFIX};@" $NGINX_CONFIG_FILE
-            sed -i "s@^location /domjudge { return 301 /domjudge/; }\$@location ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
-            sed -i "s@^location /domjudge/ {\$@location ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
-            sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
-        fi
+		if [[ -z "$WEB_PREFIX" ]]; then
+			# Run DOMjudge in root
+			sed -i '/^# location \//,/^# \}/ s/# //' $NGINX_CONFIG_FILE
+			sed -i '/^location \/domjudge/,/^\}/ s/^/#/' $NGINX_CONFIG_FILE
+			sed -i 's/\/domjudge;/"";/' $NGINX_CONFIG_FILE
+		else
+			# Run DOMjudge at the specified path
+			sed -i "s@^set \\\$prefix /domjudge;\$@set \$prefix ${WEB_PREFIX};@" $NGINX_CONFIG_FILE
+			sed -i "s@^location /domjudge { return 301 /domjudge/; }\$@location ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
+			sed -i "s@^location /domjudge/ {\$@location ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
+			sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
+		fi
 	else
-        if [[ -z "$WEB_PREFIX" ]]; then
-            # Run DOMjudge in root
-            sed -i '/^\t#location \//,/^\t#\}/ s/\t#/\t/' $NGINX_CONFIG_FILE
-            sed -i '/^\tlocation \/domjudge/,/^\t\}/ s/^\t/\t#/' $NGINX_CONFIG_FILE
-        else
-            # Run DOMjudge at the specified path
-            sed -i "s@^\tlocation /domjudge { return 301 /domjudge/; }\$@\tlocation ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
-            sed i "s@^\tlocation /domjudge/ {\$@\tlocation ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
-            sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
-        fi
+		if [[ -z "$WEB_PREFIX" ]]; then
+			# Run DOMjudge in root
+			sed -i '/^\t#location \//,/^\t#\}/ s/\t#/\t/' $NGINX_CONFIG_FILE
+			sed -i '/^\tlocation \/domjudge/,/^\t\}/ s/^\t/\t#/' $NGINX_CONFIG_FILE
+		else
+			# Run DOMjudge at the specified path
+			sed -i "s@^\tlocation /domjudge { return 301 /domjudge/; }\$@\tlocation ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
+			sed i "s@^\tlocation /domjudge/ {\$@\tlocation ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
+			sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
+		fi
 	fi
+
+	sed -i "s/client_max_body_size .*\$/client_max_body_size $NGINX_CLIENT_MAX_BODY_SIZE;/" $NGINX_CONFIG_FILE
 
 	# Remove access_log and error_log entries
 	sed -i '/access_log/d' $NGINX_CONFIG_FILE

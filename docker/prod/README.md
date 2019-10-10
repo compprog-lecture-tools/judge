@@ -16,8 +16,13 @@ It can be configured using the following environment variables:
  * `DJ_DB_INSTALL_BARE` (default `0`): Set to `1` to skip installing default data (problems/contests/...).
    Internally changes from running `make install` to `make bare-install`.
  * `FPM_MAX_CHILDREN` (defaults to 40): The maximum number of PHP-FPM processes.
- * `WEB_PREFIX` (defaults to `/`): Prefix for all paths.
+ * `WEB_PREFIX` (default: empty): Prefix for all paths.
    If not set up correctly, some links in the pages will not work correctly.
+ * `PHP_UPLOAD_MAX_FILESIZE` (default: `100M`): value for the php `upload_max_filesize` option.
+ * `PHP_POST_MAX_SIZE` (default: `100M`): value for the php `post_max_size` option.
+ * `PHP_MEMORY_LIMIT` (default: `2G`): value for the php `memory_limit` option.
+ * `PHP_MAX_FILE_UPLOADS` (default: `200`): value for the php `max_file_uploads` option.
+ * `NGINX_CLIENT_MAX_BODY_SIZE` (default: `128M`): value for the nginx `client_max_body_size` option.
  
 Both database passwords can also be specified by setting a `*_FILE` variant of their env variable to a file mounted on the container which contains the password.
 
