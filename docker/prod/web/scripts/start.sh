@@ -141,15 +141,31 @@ then
 		cp etc/nginx-conf-inner /etc/nginx/snippets/domjudge-inner
 		NGINX_CONFIG_FILE=/etc/nginx/snippets/domjudge-inner
 		sed -i 's/\/opt\/domjudge\/domserver\/etc\/nginx-conf-inner/\/etc\/nginx\/snippets\/domjudge-inner/' /etc/nginx/sites-enabled/default
-		# Run DOMjudge in root
-		sed -i '/^# location \//,/^# \}/ s/# //' $NGINX_CONFIG_FILE
-		sed -i '/^location \/domjudge/,/^\}/ s/^/#/' $NGINX_CONFIG_FILE
-		sed -i 's/\/domjudge;/"";/' $NGINX_CONFIG_FILE
+        if [[ -z "$WEB_PREFIX" ]]; then
+            # Run DOMjudge in root
+            sed -i '/^# location \//,/^# \}/ s/# //' $NGINX_CONFIG_FILE
+            sed -i '/^location \/domjudge/,/^\}/ s/^/#/' $NGINX_CONFIG_FILE
+            sed -i 's/\/domjudge;/"";/' $NGINX_CONFIG_FILE
+        else
+            # Run DOMjudge at the specified path
+            sed -i "s@^set \\\$prefix /domjudge;\$@set \$prefix ${WEB_PREFIX};@" $NGINX_CONFIG_FILE
+            sed -i "s@^location /domjudge { return 301 /domjudge/; }\$@location ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
+            sed -i "s@^location /domjudge/ {\$@location ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
+            sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
+        fi
 	else
-		# Run DOMjudge in root
-		sed -i '/^\t#location \//,/^\t#\}/ s/\t#/\t/' $NGINX_CONFIG_FILE
-		sed -i '/^\tlocation \/domjudge/,/^\t\}/ s/^\t/\t#/' $NGINX_CONFIG_FILE
+        if [[ -z "$WEB_PREFIX" ]]; then
+            # Run DOMjudge in root
+            sed -i '/^\t#location \//,/^\t#\}/ s/\t#/\t/' $NGINX_CONFIG_FILE
+            sed -i '/^\tlocation \/domjudge/,/^\t\}/ s/^\t/\t#/' $NGINX_CONFIG_FILE
+        else
+            # Run DOMjudge at the specified path
+            sed -i "s@^\tlocation /domjudge { return 301 /domjudge/; }\$@\tlocation ${WEB_PREFIX} { return 301 ${WEB_PREFIX}/; }@" $NGINX_CONFIG_FILE
+            sed i "s@^\tlocation /domjudge/ {\$@\tlocation ${WEB_PREFIX}/ {@" $NGINX_CONFIG_FILE
+            sed -i "s@rewrite \^/domjudge/@rewrite ^${WEB_PREFIX}/@" $NGINX_CONFIG_FILE
+        fi
 	fi
+
 	# Remove access_log and error_log entries
 	sed -i '/access_log/d' $NGINX_CONFIG_FILE
 	sed -i '/error_log/d' $NGINX_CONFIG_FILE
