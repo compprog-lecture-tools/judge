@@ -32,6 +32,11 @@ class TeamScore
     protected $totalTime;
 
     /**
+     * @var bool
+     */
+    protected $active;
+
+    /**
      * TeamScore constructor.
      * @param Team $team
      */
@@ -39,6 +44,7 @@ class TeamScore
     {
         $this->team      = $team;
         $this->totalTime = $team->getPenalty();
+        $this->active    = false;
     }
 
     /**
@@ -111,5 +117,21 @@ class TeamScore
     public function addTotalTime(int $totalTime)
     {
         $this->totalTime += $totalTime;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isActive(): bool
+    {
+        return $this->active;
+    }
+
+    /**
+     * @param bool $active
+     */
+    public function setActive(bool $active): void
+    {
+        $this->active = $active;
     }
 }

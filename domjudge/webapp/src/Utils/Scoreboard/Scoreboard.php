@@ -241,6 +241,10 @@ class Scoreboard
                 $penalty
             );
 
+            if ($scoreRow->getSubmissions($this->restricted) + $scoreRow->getPending($this->restricted) > 0) {
+                $this->scores[$scoreRow->getTeam()->getTeamid()]->setActive(true);
+            }
+
             if ($scoreRow->getIsCorrect($this->restricted)) {
                 $solveTime      = Utils::scoretime($scoreRow->getSolveTime($this->restricted), $this->scoreIsInSecods);
                 $contestProblem = $this->problems[$scoreRow->getProblem()->getProbid()];
@@ -315,7 +319,8 @@ class Scoreboard
      *   (e.g. score regular contestants always over spectators);
      * - Then, use the scoreCompare function to determine the actual ordering
      *   based on number of problems solved and the time it took;
-     * - If still equal, order on team name alphabetically.
+     * - If still equal, order active teams (that have submitted in this contest) above inactive ones
+     * - Finally, order by team name alphabetically.
      * @param TeamScore $a
      * @param TeamScore $b
      * @return int
@@ -331,6 +336,11 @@ class Scoreboard
         $scoreCompare = static::scoreCompare($a, $b);
         if ($scoreCompare != 0) {
             return $scoreCompare;
+        }
+
+        // Then by activity
+        if ($a->isActive() != $b->isActive()) {
+            return $b->isActive() <=> $a->isActive();
         }
 
         // Else, order by teamname alphabetically
