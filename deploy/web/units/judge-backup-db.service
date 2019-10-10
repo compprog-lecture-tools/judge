@@ -1,0 +1,7 @@
+[Unit]
+Description=Run judge database backup
+Requires=mariadb.service
+
+[Service]
+Type=oneshot
+ExecStart=%BASEDIR%/scripts/internal/run-db-backup.py %BASEDIR%/db/backups mariadb

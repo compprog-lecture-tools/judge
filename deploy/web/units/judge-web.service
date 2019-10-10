@@ -1,0 +1,30 @@
+[Unit]
+Description=Judge web interface service
+After=docker.service mariadb.service
+Requires=docker.service mariadb.serivce
+
+[Service]
+TimeoutStartSec=0
+Restart=always
+ExecStartPre=-/usr/bin/docker stop -t5 %N
+ExecStartPre=-/usr/bin/docker rm %N
+ExecStart=/usr/bin/docker run --rm \
+                              --name %N \
+                              --hostname %N \
+                              --net judge-web \
+                              --publish %PORT%:80 \
+                              --volume %BASEDIR%/secrets/db.password:/secrets/db.password:ro \
+                              --volume %BASEDIR%/secrets/db-root.password:/secrets/db-root.password:ro \
+                              --env CONTAINER_TIMEZONE=%TIMEZONE% \
+                              --env MYSQL_HOST=mariadb \
+                              --env MYSQL_USER=domjudge \
+                              --env MYSQL_PASSWORD_FILE=/secrets/db.password \
+                              --env MYSQL_ROOT_PASSWORD_FILE=/secrets/db-root.password \
+                              --env MYSQL_DATABASE=domjudge \
+                              --env DJ_DB_INSTALL_BARE=1 \
+                              --env WEB_PREFIX=%WEB_PREFIX% \
+                              hpiicpc/judge-web:latest
+ExecStop=-/usr/bin/docker stop -t5 %N
+
+[Install]
+WantedBy=multi-user.target

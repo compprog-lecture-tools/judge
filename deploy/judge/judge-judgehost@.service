@@ -1,0 +1,26 @@
+[Unit]
+Description=Judge judgehost service (daemon %i)
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+Restart=always
+ExecStartPre=-/usr/bin/docker stop -t5 %p-%i
+ExecStartPre=-/usr/bin/docker rm %p-%i
+ExecStart=/usr/bin/docker run --rm \
+                              --name %p-%i \
+                              --hostname %p-%i \
+                              --privileged \
+                              --volume /sys/fs/cgroup:/sys/fs/cgroup:ro \
+                              --volume %BASEDIR%/judgehost.password:/secrets/judgehost.password:ro \
+                              --env CONTAINER_TIMEZONE=%TIMEZONE% \
+                              --env DOMSERVER_BASEURL=%WEB_BASEURL% \
+                              --env JUDGEDAEMON_USERNAME=judgehost \
+                              --env JUDGEDAEMON_PASSWORD_FILE=/secrets/judgehost.password \
+                              --env DAEMON_ID=%i \
+                              hpiicpc/judge-judgehost:latest
+ExecStop=-/usr/bin/docker stop -t5 %p-%i
+
+[Install]
+WantedBy=multi-user.target

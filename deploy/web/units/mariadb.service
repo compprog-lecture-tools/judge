@@ -1,0 +1,31 @@
+[Unit]
+Description=MariaDB in Docker service
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+Restart=always
+ExecStartPre=-/usr/bin/docker stop -t5 %N
+ExecStartPre=-/usr/bin/docker rm %N
+ExecStart=/usr/bin/docker run --rm \
+                              --name %N \
+                              --hostname %N \
+                              --net judge-web \
+                              --volume %BASEDIR%/db/backups:/backups \
+                              --volume %BASEDIR%/db/conf.d:/etc/mysql/conf.d \
+                              --volume %BASEDIR%/db/data:/var/lib/mysql \
+                              --volume %BASEDIR%/scripts/internal/create-backup-user.sh:/docker-entrypoint-initdb.d/create-backup-user.sh:ro \
+                              --volume %BASEDIR%/secrets/db.password:/secrets/db.password:ro \
+                              --volume %BASEDIR%/secrets/db-backup.password:/secrets/db-backup.password:ro \
+                              --volume %BASEDIR%/secrets/db-root.password:/secrets/db-root.password:ro \
+                              --volume %BASEDIR%/scripts/internal/run-backup.sh:/run-backup.sh:ro \
+                              --env MYSQL_ROOT_PASSWORD_FILE=/secrets/db-root.password \
+                              --env MYSQL_DATABASE=domjudge \
+                              --env MYSQL_USER=domjudge \
+                              --env MYSQL_PASSWORD_FILE=/secrets/db.password \
+                              mariadb:10.4
+ExecStop=-/usr/bin/docker stop -t5 %N
+
+[Install]
+WantedBy=multi-user.target
