@@ -20,12 +20,12 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Add chroot and judgehost data
-ADD chroot.tar.gz /
-ADD judgehost.tar.gz /
+ADD chroot.tar /
+ADD judgehost.tar /
 RUN cp /opt/domjudge/judgehost/etc/sudoers-domjudge /etc/sudoers.d/
 
 # Add scripts
-COPY ["judgehost/scripts", "/scripts/"]
+COPY ["scripts", "/scripts/"]
 
 # Change start script permissions, add user and fix permissions
 RUN chmod +x /scripts/start.sh \

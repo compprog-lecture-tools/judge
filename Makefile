@@ -41,3 +41,8 @@ stop-dev:
 	docker stop judge-dev > /dev/null
 	echo 'Stopping mariadb container...'
 	docker stop mariadb > /dev/null
+
+
+.PHONY: build-prod
+build-prod:
+	./docker/prod/build.sh
