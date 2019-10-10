@@ -49,7 +49,7 @@ then
 fi
 
 # Build and install chroot
-/opt/domjudge/judgehost/bin/dj_make_chroot
+/opt/domjudge/judgehost/bin/dj_make_chroot -D Debian -R buster
 
 # Pack archives
 tar -cpf /web.tar /opt/domjudge/domserver
