@@ -44,6 +44,8 @@ read -r -s -p 'Database root password: ' DB_ROOT_PASSWORD
 echo
 read -r -s -p 'Database backup password: ' DB_BACKUP_PASSWORD
 echo
+read -r -s -p 'Database readonly user password: ' DB_READONLY_PASSWORD
+echo
 
 echo -n 'Creating base directory...'
 ${SUDO} mkdir -p "${BASE_DIR}"
@@ -57,6 +59,7 @@ ${SUDO} chmod 700 "${BASE_DIR}/secrets"
 echo "${DB_PASSWORD}" | ${SUDO} tee "${BASE_DIR}/secrets/db.password" > /dev/null
 echo "${DB_ROOT_PASSWORD}" | ${SUDO} tee "${BASE_DIR}/secrets/db-root.password" > /dev/null
 echo "${DB_BACKUP_PASSWORD}" | ${SUDO} tee "${BASE_DIR}/secrets/db-backup.password" > /dev/null
+echo "${DB_READONLY_PASSWORD}" | ${SUDO} tee "${BASE_DIR}/secrets/db-readonly.password" > /dev/null
 echo '  done'
 
 echo -n 'Installing systemd units to /lib/systemd/system...'
