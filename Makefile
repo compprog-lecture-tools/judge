@@ -42,6 +42,10 @@ stop-dev:
 	echo 'Stopping mariadb container...'
 	docker stop mariadb > /dev/null
 
+.PHONY: setup-dev-settings
+setup-dev-settings:
+	docker exec judge-dev /domjudge/webapp/bin/console doctrine:fixture:load --append --group=HpiSettingsFixture
+	docker exec judge-dev /domjudge/webapp/bin/console doctrine:fixture:load --append --group=HpiJudgeDevSetupFixture
 
 .PHONY: build-prod
 build-prod:
