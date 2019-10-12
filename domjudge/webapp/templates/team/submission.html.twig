@@ -4,6 +4,13 @@
 
 {% block title %}Submission details - {{ parent() }}{% endblock %}
 
+{% if showSource %}
+    {% block extrahead %}
+        {{ parent() }}
+        <script type="text/javascript" src="{{ asset('js/ace/ace.js') }}" charset="utf-8"></script>
+    {% endblock %}
+{% endif %}
+
 {% block content %}
     <h1 class="text-center mt-4">Submission details</h1>
 

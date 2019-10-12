@@ -42,37 +42,7 @@
         <p><a href="#origdiff">Go to diff to original submission</a></p>
     {%- endif %}
 
-    <ul class="nav nav-tabs source-tab-nav">
-        {%- for file in files %}
-
-            <li class="nav-item">
-                <a class="nav-link {% if loop.first %}active{% endif %}" data-toggle="tab"
-                   href="#source-{{ file.rank }}" role="tab">{{ file.filename }}</a>
-            </li>
-        {%- endfor %}
-
-    </ul>
-    <div class="tab-content source-tab">
-        {%- for file in files %}
-
-            <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="source-{{ file.rank }}"
-                 role="tabpanel">
-                <div class="mb-1">
-                    <a class="btn btn-secondary btn-sm"
-                       href="{{ path('jury_submission_source', {submission: submission.submitid, fetch: file.rank}) }}">
-                        <i class="fas fa-download"></i> Download
-                    </a>
-                    <a class="btn btn-secondary btn-sm"
-                       href="{{ path('jury_submission_edit_source', {submission: submission.submitid, rank: file.rank}) }}">
-                        <i class="fas fa-pencil-alt"></i> Edit
-                    </a>
-                </div>
-
-                {{ file.sourcecode | codeEditor(file.rank, submission.language.aceLanguage) }}
-            </div>
-        {%- endfor %}
-
-    </div>
+    {%- include 'partials/submission_source_files.html.twig' with {files: files, download_route: 'jury_submission_source', edit_route: 'jury_submission_edit_source'} %}
 
     {%- if oldSubmission is not null %}
 
@@ -83,7 +53,7 @@
             </a>
         </h2>
 
-        {%- include 'jury/partials/submission_diff.html.twig' with {oldSubmission: oldSubmission, oldFiles: oldFiles, oldFileStats: oldFileStats} %}
+        {%- include 'partials/submission_diff.html.twig' with {oldSubmission: oldSubmission, oldFiles: oldFiles, oldFileStats: oldFileStats} %}
     {%- endif %}
 
     {%- if originalSubmission is not null %}
@@ -95,7 +65,7 @@
             </a>
         </h2>
 
-        {%- include 'jury/partials/submission_diff.html.twig' with {oldSubmission: originalSubmission, oldFiles: originalFiles, oldFileStats: originalFileStats} %}
+        {%- include 'partials/submission_diff.html.twig' with {oldSubmission: originalSubmission, oldFiles: originalFiles, oldFileStats: originalFileStats} %}
     {%- endif %}
 
 {% endblock %}

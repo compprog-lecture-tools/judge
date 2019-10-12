@@ -647,4 +647,170 @@ class SubmissionService
             $fileData['filename']
         ]);
     }
+
+    /**
+     * Fetch a specific source file for a given submission
+     * @param Submission $submission
+     * @param $rank
+     * @return SubmissionFile
+     * @throws \Doctrine\ORM\NonUniqueResultException
+     */
+    public function getSourceFile(Submission $submission, $rank) {
+        return $this->em->createQueryBuilder()
+            ->from(SubmissionFile::class, 'file')
+            ->select('file')
+            ->andWhere('file.rank = :rank')
+            ->andWhere('file.submission = :submission')
+            ->setParameter(':rank', $rank)
+            ->setParameter(':submission', $submission)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Fetch all source files of a given submission
+     * @param Submission $submission
+     * @return SubmissionFile[]
+     */
+    public function getSourceFiles(Submission $submission) {
+        return $this->em->createQueryBuilder()
+            ->from(SubmissionFile::class, 'file')
+            ->select('file')
+            ->andWhere('file.submission = :submission')
+            ->setParameter(':submission', $submission)
+            ->orderBy('file.rank')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Get all source files including diffs to previous and original submissions.
+     * @param Submission $submission
+     * @return array
+     * @throws \Doctrine\ORM\NonUniqueResultException
+     */
+    public function getDiffedSourceFiles(Submission $submission) {
+        /** @var SubmissionFile[] $files */
+        $files = $this->getSourceFiles($submission);
+        $originalSubmission = $originalFiles = null;
+
+        if ($submission->getOrigsubmitid()) {
+            /** @var Submission $originalSubmission */
+            $originalSubmission = $this->em->getRepository(Submission::class)->find($submission->getOrigsubmitid());
+
+            /** @var SubmissionFile[] $files */
+            $originalFiles = $this->em->createQueryBuilder()
+                ->from(SubmissionFile::class, 'file')
+                ->select('file')
+                ->andWhere('file.submission = :submission')
+                ->setParameter(':submission', $originalSubmission)
+                ->orderBy('file.rank')
+                ->getQuery()
+                ->getResult();
+
+            /** @var Submission $oldSubmission */
+            $oldSubmission = $this->em->createQueryBuilder()
+                ->from(Submission::class, 's')
+                ->select('s')
+                ->andWhere('s.probid = :probid')
+                ->andWhere('s.langid = :langid')
+                ->andWhere('s.submittime < :submittime')
+                ->andWhere('s.origsubmitid = :origsubmitid')
+                ->setParameter(':probid', $submission->getProbid())
+                ->setParameter(':langid', $submission->getLangid())
+                ->setParameter(':submittime', $submission->getSubmittime())
+                ->setParameter(':origsubmitid', $submission->getOrigsubmitid())
+                ->orderBy('s.submittime', 'DESC')
+                ->setMaxResults(1)
+                ->getQuery()
+                ->getOneOrNullResult();
+        } else {
+            $oldSubmission = $this->em->createQueryBuilder()
+                ->from(Submission::class, 's')
+                ->select('s')
+                ->andWhere('s.teamid = :teamid')
+                ->andWhere('s.probid = :probid')
+                ->andWhere('s.langid = :langid')
+                ->andWhere('s.submittime < :submittime')
+                ->setParameter(':teamid', $submission->getTeamid())
+                ->setParameter(':probid', $submission->getProbid())
+                ->setParameter(':langid', $submission->getLangid())
+                ->setParameter(':submittime', $submission->getSubmittime())
+                ->orderBy('s.submittime', 'DESC')
+                ->setMaxResults(1)
+                ->getQuery()
+                ->getOneOrNullResult();
+        }
+
+        /** @var SubmissionFile[] $files */
+        $oldFiles = $this->em->createQueryBuilder()
+            ->from(SubmissionFile::class, 'file')
+            ->select('file')
+            ->andWhere('file.submission = :submission')
+            ->setParameter(':submission', $oldSubmission)
+            ->orderBy('file.rank')
+            ->getQuery()
+            ->getResult();
+
+        $oldFileStats      = $oldFiles !== null ? $this->determineFileChanged($files, $oldFiles) : [];
+        $originalFileStats = $originalFiles !== null ? $this->determineFileChanged($files, $originalFiles) : [];
+
+        return [
+            'submission' => $submission,
+            'files' => $files,
+            'oldSubmission' => $oldSubmission,
+            'oldFiles' => $oldFiles,
+            'oldFileStats' => $oldFileStats,
+            'originalSubmission' => $originalSubmission,
+            'originalFiles' => $originalFiles,
+            'originalFileStats' => $originalFileStats,
+        ];
+    }
+
+    /**
+     * @param SubmissionFile[] $files
+     * @param SubmissionFile[] $oldFiles
+     * @return array
+     */
+    protected static function determineFileChanged(array $files, array $oldFiles)
+    {
+        $result = [
+            'added' => [],
+            'removed' => [],
+            'changed' => [],
+            'changedfiles' => [], // These will be shown, so we will add pairs of files here
+            'unchanged' => [],
+        ];
+
+        $newFilenames = [];
+        $oldFilenames = [];
+        foreach ($files as $newfile) {
+            $oldFilenames = [];
+            foreach ($oldFiles as $oldFile) {
+                if ($newfile->getFilename() === $oldFile->getFilename()) {
+                    if ($oldFile->getSourcecode() === $newfile->getSourcecode()) {
+                        $result['unchanged'][] = $newfile->getFilename();
+                    } else {
+                        $result['changed'][]      = $newfile->getFilename();
+                        $result['changedfiles'][] = [$newfile, $oldFile];
+                    }
+                }
+                $oldFilenames[] = $oldFile->getFilename();
+            }
+            $newFilenames[] = $newfile->getFilename();
+        }
+
+        $result['added']   = array_diff($newFilenames, $oldFilenames);
+        $result['removed'] = array_diff($oldFilenames, $newFilenames);
+
+        // Special case: if we have exactly one file now and before but the filename is different, use that for diffing
+        if (count($result['added']) === 1 && count($result['removed']) === 1 && empty($result['changed'])) {
+            $result['added']        = [];
+            $result['removed']      = [];
+            $result['changed']      = [$files[0]->getFilename()];
+            $result['changedfiles'] = [[$files[0], $oldFiles[0]]];
+        }
+
+        return $result;
+    }
 }

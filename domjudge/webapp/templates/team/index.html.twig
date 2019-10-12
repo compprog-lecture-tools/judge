@@ -4,6 +4,9 @@
 
 {% block extrahead %}
     {{ parent() }}
+    {% if showSource %}
+        <script type="text/javascript" src="{{ asset('js/ace/ace.js') }}" charset="utf-8"></script>
+    {% endif %}
     <style>
         .data-table td a, .data-table td a:hover {
             display: block;

@@ -391,6 +391,13 @@ h3.teamoverview {
     text-align: center;
 }
 
+/* diff colors for source contents and filenames */
+.diff-add        { color: green; }
+.diff-del        { color: red; }
+.diff-changed    { color: darkorange; }
+.file-diff-table { width: auto; }
+.file-diff-table tr th { padding-right: 10px; }
+
 .imprint-notice {
     font-size: x-small;
 }

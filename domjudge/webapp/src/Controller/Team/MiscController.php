@@ -100,6 +100,7 @@ class MiscController extends BaseController
             $data['showAffiliationLogos'] = $this->dj->dbconfig_get('show_affiliation_logos', false);
             $data['showAffiliations']     = $this->dj->dbconfig_get('show_affiliations', true);
             $data['showPending']          = $this->dj->dbconfig_get('show_pending', false);
+            $data['showSource']           = $this->dj->dbconfig_get('show_source_to_teams', false);
             $data['showTeamSubmissions']  = $this->dj->dbconfig_get('show_teams_submissions', true);
             $data['scoreInSeconds']       = $this->dj->dbconfig_get('score_in_seconds', false);
             $data['verificationRequired'] = $this->dj->dbconfig_get('verification_required', false);

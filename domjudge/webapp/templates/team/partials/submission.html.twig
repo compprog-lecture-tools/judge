@@ -114,5 +114,23 @@
                 {% endfor %}
             {% endif %} {# not runs is empty #}
         {% endif %} {# showSampleOutput and judging.result != 'compiler-error' #}
+
+        {% if showSource %}
+            <hr/>
+            <h4 class="text-center">Source code</h4>
+            {%- include 'partials/submission_source_files.html.twig' with {files: files, download_route: 'team_submission_source', edit_route: null} %}
+
+            {% if oldSubmission is not null %}
+                <hr/>
+                <h4 class="text-center">Diff to previous submission</h4>
+                {%- include 'partials/submission_diff.html.twig' with {oldSubmission: oldSubmission, oldFiles: oldFiles, oldFileStats: oldFileStats} %}
+            {% endif %}
+
+            {% if originalSubmission is not null %}
+                <hr/>
+                <h4 class="text-center">Diff to original submission</h4>
+                {%- include 'partials/submission_diff.html.twig' with {oldSubmission: originalSubmission, oldFiles: originalFiles, oldFileStats: originalFileStats} %}
+            {% endif %}
+        {% endif %}
     </div>
 {% endif %} {# not (judging is empty or judging.submission.submittime >= current_team_contest.endtime or (verificationRequired and not judging.verified)) #}

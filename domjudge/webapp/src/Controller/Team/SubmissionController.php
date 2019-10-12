@@ -5,6 +5,7 @@ namespace App\Controller\Team;
 use App\Controller\BaseController;
 use App\Entity\Judging;
 use App\Entity\Problem;
+use App\Entity\Submission;
 use App\Entity\Testcase;
 use App\Form\Type\SubmitProblemType;
 use App\Service\DOMJudgeService;
@@ -16,6 +17,8 @@ use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Validator\Constraints\Language;
 
@@ -131,6 +134,7 @@ class SubmissionController extends BaseController
     {
         $verificationRequired = (bool)$this->dj->dbconfig_get('verification_required', false);;
         $showCompile      = $this->dj->dbconfig_get('show_compile', 2);
+        $showSource       = $this->dj->dbconfig_get('show_source_to_teams', false);
         $showSampleOutput = $this->dj->dbconfig_get('show_sample_output', 0);
         $user             = $this->dj->getUser();
         $team             = $user->getTeam();
@@ -159,34 +163,70 @@ class SubmissionController extends BaseController
 
         /** @var Testcase[] $runs */
         $runs = [];
-        if ($showSampleOutput && $judging && $judging->getResult() !== 'compiler-error') {
-            $runs = $this->em->createQueryBuilder()
-                ->from(Testcase::class, 't')
-                ->join('t.content', 'tc')
-                ->leftJoin('t.judging_runs', 'jr', Join::WITH, 'jr.judging = :judging')
-                ->leftJoin('jr.output', 'jro')
-                ->select('t', 'jr', 'tc', 'jro')
-                ->andWhere('t.problem = :problem')
-                ->andWhere('t.sample = 1')
-                ->setParameter(':judging', $judging)
-                ->setParameter(':problem', $judging->getSubmission()->getProblem())
-                ->orderBy('t.rank')
-                ->getQuery()
-                ->getResult();
+        $sourceData = [];
+
+        // Skip all further requests if the submission does not exist or does not belong to the team
+        if ($judging) {
+            if ($showSource) {
+                $sourceData = $this->submissionService->getDiffedSourceFiles($judging->getSubmission());
+            }
+
+            if ($showSampleOutput && $judging->getResult() !== 'compiler-error') {
+                $runs = $this->em->createQueryBuilder()
+                    ->from(Testcase::class, 't')
+                    ->join('t.content', 'tc')
+                    ->leftJoin('t.judging_runs', 'jr', Join::WITH, 'jr.judging = :judging')
+                    ->leftJoin('jr.output', 'jro')
+                    ->select('t', 'jr', 'tc', 'jro')
+                    ->andWhere('t.problem = :problem')
+                    ->andWhere('t.sample = 1')
+                    ->setParameter(':judging', $judging)
+                    ->setParameter(':problem', $judging->getSubmission()->getProblem())
+                    ->orderBy('t.rank')
+                    ->getQuery()
+                    ->getResult();
+            }
         }
 
-        $data = [
+        $data = array_merge($sourceData, [
             'judging' => $judging,
             'verificationRequired' => $verificationRequired,
             'showCompile' => $showCompile,
+            'showSource' => $showSource,
             'showSampleOutput' => $showSampleOutput,
             'runs' => $runs,
-        ];
+        ]);
 
         if ($request->isXmlHttpRequest()) {
             return $this->render('team/submission_modal.html.twig', $data);
         } else {
             return $this->render('team/submission.html.twig', $data);
         }
+    }
+
+    /**
+     * @Route("/{submission}/source", name="team_submission_source")
+     */
+    public function sourceAction(Request $request, Submission $submission) {
+        $user = $this->dj->getUser();
+        if ($submission->getTeamid() !== $user->getTeamid()) {
+            throw $this->createAccessDeniedException();
+        }
+
+        $rank = $request->query->get('fetch');
+        $file = $this->submissionService->getSourceFile($submission, $rank);
+        if (!$file) {
+            throw new NotFoundHttpException(sprintf('No submission file found with rank %s', $rank));
+        }
+
+        $response = new Response();
+        $response->headers->set('Content-Type',
+            sprintf('text/plain; name="%s"; charset="utf-8"', $file->getFilename()));
+        $response->headers->set('Content-Disposition', sprintf('attachment; filename="%s"', $file->getFilename()));
+        $response->headers->set('Content-Length', (string)strlen($file->getSourcecode()));
+        $response->setContent($file->getSourcecode());
+
+        return $response;
+
     }
 }

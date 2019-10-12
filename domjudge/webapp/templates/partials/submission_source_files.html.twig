@@ -1,0 +1,34 @@
+<ul class="nav nav-tabs source-tab-nav">
+    {%- for file in files %}
+
+        <li class="nav-item">
+            <a class="nav-link {% if loop.first %}active{% endif %}" data-toggle="tab"
+               href="#source-{{ file.rank }}" role="tab">{{ file.filename }}</a>
+        </li>
+    {%- endfor %}
+
+</ul>
+<div class="tab-content source-tab">
+    {%- for file in files %}
+
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="source-{{ file.rank }}"
+             role="tabpanel">
+            <div class="mb-1">
+                <a class="btn btn-secondary btn-sm"
+                   href="{{ path(download_route, {submission: submission.submitid, fetch: file.rank}) }}">
+                    <i class="fas fa-download"></i> Download
+                </a>
+                {% if edit_route is not empty %}
+                    <a class="btn btn-secondary btn-sm"
+                       href="{{ path(edit_route, {submission: submission.submitid, rank: file.rank}) }}">
+                        <i class="fas fa-pencil-alt"></i> Edit
+                    </a>
+                {% endif %}
+            </div>
+
+            {{ file.sourcecode | codeEditor(file.rank, submission.language.aceLanguage) }}
+        </div>
+    {%- endfor %}
+
+</div>
+
