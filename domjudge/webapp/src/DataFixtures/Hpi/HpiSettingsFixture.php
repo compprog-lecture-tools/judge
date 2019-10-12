@@ -6,6 +6,7 @@ namespace App\DataFixtures\Hpi;
 
 use App\Entity\Configuration;
 use App\Entity\Language;
+use App\Entity\TeamCategory;
 use Doctrine\Bundle\FixturesBundle\Fixture;
 use Doctrine\Common\Persistence\ObjectManager;
 
@@ -14,7 +15,7 @@ use Doctrine\Common\Persistence\ObjectManager;
  *
  * @package App\DataFixtures\Hpi
  */
-class HpiSettings extends Fixture
+class HpiSettingsFixture extends Fixture
 {
     private static $settings = [
         'lazy_eval_results' => 1,
@@ -26,7 +27,7 @@ class HpiSettings extends Fixture
         'show_sample_output' => 1,
         'show_limits_on_team_page' => 1,
         'show_source_to_teams' => 1,
-        'registration_category_name' => 'Contestants',
+        'registration_category_name' => 'Participants',
     ];
 
     /**
@@ -34,6 +35,12 @@ class HpiSettings extends Fixture
      */
     public function load(ObjectManager $manager)
     {
+        if ($manager->getRepository(TeamCategory::class)->findOneBy(['name' => 'Participants']) === null) {
+            $participants = new TeamCategory();
+            $participants->setName('Participants');
+            $manager->persist($participants);
+        }
+
         $configRepo = $manager->getRepository(Configuration::class);
         foreach (self::$settings as $name => $value) {
             $configRepo->findOneBy(['name' => $name])->setValue($value);
