@@ -1,0 +1,32 @@
+image: docker:stable
+
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+
+services:
+  # Newer versions cause issues: https://gitlab.com/gitlab-org/gitlab-runner/issues/4566
+  - docker:18.09.7-dind
+
+before_script:
+  - apk update
+  - apk add bash git make
+
+build:
+  stage: build
+  script:
+    - |
+      if [[ "${CI_COMMIT_REF_NAME}" == "master" ]]; then
+        echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin
+      fi
+    - docker pull hpiicpc/judge-dev:latest
+    - docker pull hpiicpc/judge-web:latest
+    - docker pull hpiicpc/judge-judgehost:latest
+    - make build-dev
+    - make build-prod
+    - |
+      if [[ "${CI_COMMIT_REF_NAME}" == "master" ]]; then
+        docker push hpiicpc/judge-dev:latest
+        docker push hpiicpc/judge-web:latest
+        docker push hpiicpc/judge-judgehost:latest
+      fi
