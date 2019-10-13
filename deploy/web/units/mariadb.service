@@ -18,6 +18,7 @@ ExecStart=/usr/bin/docker run --rm \
                               --volume %BASEDIR%/scripts/internal/create-db-users.sh:/docker-entrypoint-initdb.d/create-db-users.sh:ro \
                               --volume %BASEDIR%/secrets/db.password:/secrets/db.password:ro \
                               --volume %BASEDIR%/secrets/db-backup.password:/secrets/db-backup.password:ro \
+                              --volume %BASEDIR%/secrets/db-readonly.password:/secrets/db-readonly.password:ro \
                               --volume %BASEDIR%/secrets/db-root.password:/secrets/db-root.password:ro \
                               --volume %BASEDIR%/scripts/internal/run-backup.sh:/run-backup.sh:ro \
                               --env MYSQL_ROOT_PASSWORD_FILE=/secrets/db-root.password \
