@@ -101,7 +101,7 @@ Automatic installation complete. As the next steps, you should:
 
 2. Enable the services to start automatically: systemctl enable mariadb judge-web judge-backup-db.timer
 
-3. Run the get-initial-admin-password.sh script and use the password to login to the web interface.
+3. Find the initial admin password in the log output (journalctl -u judge-web)
 
 4. Change the admin and judgehost password, as well as create other admin users to your liking.
 
