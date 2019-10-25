@@ -28,6 +28,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
+use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use ZipArchive;
 
@@ -35,7 +36,6 @@ class DOMJudgeService
 {
     protected $em;
     protected $logger;
-    protected $hasAllRoles = false;
     /** @var Configuration[] */
     protected $configCache = [];
 
@@ -254,10 +254,6 @@ class DOMJudgeService
 
     public function checkrole(string $rolename, bool $check_superset = true): bool
     {
-        if ($this->hasAllRoles) {
-            return true;
-        }
-
         $user = $this->getUser();
         if ($user === null) {
             return false;
@@ -427,14 +423,6 @@ class DOMJudgeService
     }
 
     /**
-     * @return bool
-     */
-    public function getHasAllRoles(): bool
-    {
-        return $this->hasAllRoles;
-    }
-
-    /**
      * Run the given callable with all roles.
      *
      * This will result in all calls to checkrole() to return true.
@@ -443,9 +431,23 @@ class DOMJudgeService
      */
     public function withAllRoles(callable $callable)
     {
-        $this->hasAllRoles = true;
+        $currentToken = $this->tokenStorage->getToken();
+        // We need a 'user' to create a token. However, even if you
+        // are not logged in, a (anonymous) user is returned. This
+        // check is just here to make sure the code does not crash
+        // in strange circumstances.
+        if ($currentToken && $currentToken->getUser()) {
+            $this->tokenStorage->setToken(
+                new UsernamePasswordToken(
+                    $currentToken->getUser(),
+                    null,
+                    'main',
+                    ['ROLE_ADMIN']
+                )
+            );
+        }
         $callable();
-        $this->hasAllRoles = false;
+        $this->tokenStorage->setToken($currentToken);
     }
 
     /**
@@ -674,7 +676,7 @@ class DOMJudgeService
         string $origname,
         ?string $language,
         string $username,
-        ?string $teamname,
+        ?string $teamname = null,
         ?int $teamid = null,
         ?string $location = null
     ): array {

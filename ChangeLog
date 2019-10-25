@@ -1,5 +1,15 @@
 DOMjudge Programming Contest Judging System
 
+Version 7.1.1 - 20 October 2019
+-------------------------------
+ - Update documentation for Fedora (Thanks Marc Furon!).
+ - Fix printing in jury interface.
+ - Fix registration action.
+ - Fix showing user last login info.
+ - Fix balloon page when we do not have award info.
+ - Fix logging events that require higher permissions then user
+   that triggers the action has.
+
 Version 7.1.0 - 25 September 2019
 ---------------------------------
  - Minimum PHP version is now 7.1.3.
