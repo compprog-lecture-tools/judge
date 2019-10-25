@@ -1,6 +1,6 @@
 # HPIjudge
 
-Competitive programming judge system based on DOMjudge 7.1.0, developed for use at HPI.
+Competitive programming judge system based on DOMjudge 7.1.1, developed for use at HPI.
 
 This contains:
  * the customized DOMjudge sources in `domjudge`,
