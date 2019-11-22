@@ -258,18 +258,24 @@
                         {% set link = path('jury_team', {teamId: score.team.teamid, restrict: restrict}) %}
                     {% endif %}
 
+                    {% set runtime = 1000 * scoreboard.matrix[score.team.teamid][problem.probid].getRuntime() %}
+
                     <td class="score_cell">
                         {% if numberOfSubmissions != '0' %}
                             <a {% if link %}href="{{ link }}"{% endif %}>
                                 <div class="{{ scoreCssClass }}">
                                     {{ time | raw }}
                                     <span>
+                                    {% if not scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
                                         {% if numberOfSubmissions is same as(1) %}
                                             1 try
                                         {% else %}
                                             {{ numberOfSubmissions }} tries
                                         {% endif %}
+                                    {% else %}
+                                        {{ runtime }} ms
                                     </span>
+                                    {% endif %}
                                 </div>
                             </a>
                         {% endif %}

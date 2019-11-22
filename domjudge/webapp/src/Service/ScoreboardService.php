@@ -325,7 +325,8 @@ class ScoreboardService
         } else {
             $queryBuilder
                 ->addSelect('j')
-                ->leftJoin('s.judgings', 'j', Join::WITH, 'j.valid = 1');
+                ->leftJoin('s.judgings', 'j', Join::WITH, 'j.valid = 1')
+                ->leftJoin('j.runs', 'jr');
         }
 
         // Check if we need to count compile error as a penalty.
@@ -341,6 +342,8 @@ class ScoreboardService
         $submissionsPubl = $pendingPubl = $timePubl = 0;
         $correctJury     = false;
         $correctPubl     = false;
+        $runtimeJury     = INF;
+        $runtimePubl     = INF;
 
         foreach ($submissions as $submission) {
             /** @var Judging|ExternalJudgement|null $judging */
@@ -396,18 +399,24 @@ class ScoreboardService
             $absSubmitTime = (float)$submission->getSubmittime();
             $submitTime    = $contest->getContestTime($absSubmitTime);
 
-            // if correct, don't look at any more submissions after this one.
             if ($judging->getResult() == Judging::RESULT_CORRECT) {
                 $correctJury = true;
                 $timeJury    = $submitTime;
+                $judgingMaxRuntime = $judging->getMaxRuntime();
+                if($judgingMaxRuntime < $runtimeJury) {
+                    $runtimeJury = $judgingMaxRuntime;
+                }
                 if (!$submission->isAfterFreeze()) {
                     $correctPubl = true;
                     $timePubl    = $submitTime;
+                    if($judgingMaxRuntime < $runtimePubl) {
+                        $runtimePubl = $judgingMaxRuntime;
+                    }
                     // Stop counting after a first correct submission, but
                     // only before the freeze. We need to consider all the
                     // submissions during the freeze, because we need to show
                     // them all to the public.
-                    break;
+                    // break;
                 }
             }
         }
@@ -469,18 +478,20 @@ class ScoreboardService
             ':pendingRestricted' => $pendingJury,
             ':solvetimeRestricted' => (int)$timeJury,
             ':isCorrectRestricted' => (int)$correctJury,
+            ':runtimeResticted' => $runtimeJury === INF ? 0 : $runtimeJury,
             ':submissionsPublic' => $submissionsPubl,
             ':pendingPublic' => $pendingPubl,
             ':solvetimePublic' => (int)$timePubl,
             ':isCorrectPublic' => (int)$correctPubl,
+            ':runtimePublic' => $runtimePubl === INF ? 0 : $runtimePubl,
             ':isFirstToSolve' => (int)$firstToSolve,
         ];
         $this->em->getConnection()->executeQuery('REPLACE INTO scorecache
             (cid, teamid, probid,
-             submissions_restricted, pending_restricted, solvetime_restricted, is_correct_restricted,
-             submissions_public, pending_public, solvetime_public, is_correct_public, is_first_to_solve)
-            VALUES (:cid, :teamid, :probid, :submissionsRestricted, :pendingRestricted, :solvetimeRestricted, :isCorrectRestricted,
-            :submissionsPublic, :pendingPublic, :solvetimePublic, :isCorrectPublic, :isFirstToSolve)', $params);
+             submissions_restricted, pending_restricted, solvetime_restricted, is_correct_restricted, runtime_restricted,
+             submissions_public, pending_public, solvetime_public, is_correct_public, runtime_public, is_first_to_solve)
+            VALUES (:cid, :teamid, :probid, :submissionsRestricted, :pendingRestricted, :solvetimeRestricted, :isCorrectRestricted, :runtimeResticted,
+            :submissionsPublic, :pendingPublic, :solvetimePublic, :isCorrectPublic, :runtimePublic, :isFirstToSolve)', $params);
 
         if ($this->em->getConnection()->fetchColumn('SELECT RELEASE_LOCK(:lock)',
                                                                [':lock' => $lockString]) != 1) {

@@ -128,6 +128,16 @@ class ScoreCache
     private $problem;
 
     /**
+     * @ORM\Column(type="float")
+     */
+    private $runtime_restricted;
+
+    /**
+     * @ORM\Column(type="float")
+     */
+    private $runtime_public;
+
+    /**
      * Set submissionsRestricted
      *
      * @param integer $submissionsRestricted
@@ -453,5 +463,39 @@ class ScoreCache
     public function getIsCorrect(bool $restricted): bool
     {
         return $restricted ? $this->getIsCorrectRestricted() : $this->getIsCorrectPublic();
+    }
+
+    public function getRuntimeRestricted(): ?float
+    {
+        return $this->runtime_restricted;
+    }
+
+    public function setRuntimeRestricted(float $runtime_restricted): self
+    {
+        $this->runtime_restricted = $runtime_restricted;
+
+        return $this;
+    }
+
+    public function getRuntimePublic(): ?float
+    {
+        return $this->runtime_public;
+    }
+
+    public function setRuntimePublic(float $runtime_public): self
+    {
+        $this->runtime_public = $runtime_public;
+
+        return $this;
+    }
+
+    /**
+     * Get the public or restricted runtime based on the parameter (in s)
+     * @param bool $restricted
+     * @return float
+     */
+    public function getRuntime(bool $restricted)
+    {
+        return $restricted ? $this->getRuntimeRestricted() : $this->getRuntimePublic();
     }
 }

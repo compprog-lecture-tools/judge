@@ -238,7 +238,8 @@ class Scoreboard
                 $scoreRow->getSubmissions($this->restricted),
                 $scoreRow->getPending($this->restricted),
                 $scoreRow->getSolveTime($this->restricted),
-                $penalty
+                $penalty,
+                $scoreRow->getRuntime($this->restricted)
             );
 
             if ($scoreRow->getSubmissions($this->restricted) + $scoreRow->getPending($this->restricted) > 0) {
