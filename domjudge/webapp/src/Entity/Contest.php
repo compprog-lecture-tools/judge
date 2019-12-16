@@ -344,6 +344,11 @@ class Contest extends BaseApiEntity
      */
     private $removedIntervals;
 
+    /**
+     * @ORM\Column(type="boolean")
+     */
+    private $order_by_runtime = false;
+
 
     /**
      * Constructor
@@ -1637,6 +1642,18 @@ class Contest extends BaseApiEntity
         if ($this->team_categories->contains($teamCategory)) {
             $this->team_categories->removeElement($teamCategory);
         }
+
+        return $this;
+    }
+
+    public function getOrderByRuntime(): ?bool
+    {
+        return $this->order_by_runtime;
+    }
+
+    public function setOrderByRuntime(bool $order_by_runtime): self
+    {
+        $this->order_by_runtime = $order_by_runtime;
 
         return $this;
     }

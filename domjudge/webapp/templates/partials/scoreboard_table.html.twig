@@ -259,23 +259,29 @@
                     {% endif %}
 
                     {% set runtime = 1000 * scoreboard.matrix[score.team.teamid][problem.probid].getRuntime() %}
+                    {% if not scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
+                        {% set runtime = '&nbsp;' %}
+                    {% endif %}
 
                     <td class="score_cell">
                         {% if numberOfSubmissions != '0' %}
                             <a {% if link %}href="{{ link }}"{% endif %}>
                                 <div class="{{ scoreCssClass }}">
-                                    {{ time | raw }}
-                                    <span>
-                                    {% if not scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
-                                        {% if numberOfSubmissions is same as(1) %}
-                                            1 try
-                                        {% else %}
-                                            {{ numberOfSubmissions }} tries
+                                    {% if scoreboard.getOrderByRuntime() %}
+                                        {{ runtime | raw }}
+                                        {% if scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
+                                            ms
                                         {% endif %}
                                     {% else %}
-                                        {{ runtime }} ms
-                                    </span>
+                                        {{ time | raw }}
                                     {% endif %}
+                                    <span>
+                                    {% if numberOfSubmissions is same as(1) %}
+                                        1 try
+                                    {% else %}
+                                        {{ numberOfSubmissions }} tries
+                                    {% endif %}
+                                    </span>
                                 </div>
                             </a>
                         {% endif %}

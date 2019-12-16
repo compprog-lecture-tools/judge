@@ -101,6 +101,14 @@ class ContestType extends AbstractExternalIdEntityType
                 'No' => false,
             ],
         ]);
+        $builder->add('orderByRuntime', ChoiceType::class, [
+            'expanded' => true,
+            'choices' => [
+                'Yes' => true,
+                'No' => false,
+            ],
+        ]);
+
         $builder->add('problems', CollectionType::class, [
             'entry_type' => ContestProblemType::class,
             'prototype' => true,
