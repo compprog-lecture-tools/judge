@@ -170,6 +170,20 @@ class ScoreboardService
         $totalTime  = $rankCache ? $rankCache->getTotaltimeRestricted() : 0;
         $sortOrder  = $team->getCategory()->getSortorder();
 
+        // Select predicates based on the contest order setting
+        $betterPredicate = sprintf('r.points_%s > :points OR (r.points_%s = :points AND ', $variant, $variant);
+        $tiedPredicate = sprintf('r.points_%s = :points AND ', $variant);
+        $timeParam = null;
+        if ($contest->getOrderByRuntime()) {
+            $betterPredicate .= sprintf('r.totalruntime_%s < :timeparam)', $variant);
+            $tiedPredicate   .= sprintf('r.totalruntime_%s = :timeparam', $variant);
+            $timeParam        = $rankCache ? $rankCache->getTotalRuntimeRestricted() : 0;
+        } else {
+            $betterPredicate .= sprintf('r.totaltime_%s < :timeparam)', $variant);
+            $tiedPredicate   .= sprintf('r.totaltime_%s = :timeparam', $variant);
+            $timeParam        = $rankCache ? $rankCache->getTotalTimeRestricted() : 0;
+        }
+
         // Number of teams that definitely ranked higher
         $better = $this->em->createQueryBuilder()
             ->from(RankCache::class, 'r')
@@ -179,13 +193,11 @@ class ScoreboardService
             ->andWhere('r.contest = :contest')
             ->andWhere('tc.sortorder = :sortorder')
             ->andWhere('t.enabled = 1')
-            ->andWhere(sprintf('r.points_%s > :points OR (r.points_%s = :points AND r.totaltime_%s < :totaltime)',
-                               $variant, $variant,
-                               $variant))
+            ->andWhere($betterPredicate)
             ->setParameter(':contest', $contest)
             ->setParameter(':sortorder', $sortOrder)
             ->setParameter(':points', $points)
-            ->setParameter(':totaltime', $totalTime)
+            ->setParameter(':timeparam', $timeParam)
             ->getQuery()
             ->getSingleScalarResult();
 
@@ -203,11 +215,11 @@ class ScoreboardService
                 ->andWhere('r.contest = :contest')
                 ->andWhere('tc.sortorder = :sortorder')
                 ->andWhere('t.enabled = 1')
-                ->andWhere(sprintf('r.points_%s = :points AND r.totaltime_%s = :totaltime', $variant, $variant))
+                ->andWhere($tiedPredicate)
                 ->setParameter(':contest', $contest)
                 ->setParameter(':sortorder', $sortOrder)
                 ->setParameter(':points', $points)
-                ->setParameter(':totaltime', $totalTime)
+                ->setParameter(':timeparam', $timeParam)
                 ->getQuery()
                 ->getResult();
 
@@ -345,6 +357,31 @@ class ScoreboardService
         $runtimeJury     = INF;
         $runtimePubl     = INF;
 
+        // do runtime separately to not interfere with break/contiune logic in normal submission counting
+        // we want to allow runtime improvements even after first correct submission
+        foreach ($submissions as $submission) {
+            /** @var Judging|ExternalJudgement|null $judging */
+            if ($useExternalJudgements) {
+                $judging = $submission->getExternalJudgements()->first() ?: null;
+            } else {
+                $judging = $submission->getJudgings()->first() ?: null;
+            }
+
+            // Check if this submission has a publicly visible judging result:
+            if ($judging === null ||
+                (!$useExternalJudgements && $verificationRequired && !$judging->getVerified()) ||
+                empty($judging->getResult())) {
+                continue;
+            }
+
+            if ($judging->getResult() == Judging::RESULT_CORRECT) {
+                $runtimeJury = min($runtimeJury, $judging->getMaxRuntime());
+                if (!$submission->isAfterFreeze()) {
+                    $runtimePubl = min($runtimePubl, $judging->getMaxRuntime());
+                }
+            }
+        }
+
         foreach ($submissions as $submission) {
             /** @var Judging|ExternalJudgement|null $judging */
             if ($useExternalJudgements) {
@@ -402,21 +439,14 @@ class ScoreboardService
             if ($judging->getResult() == Judging::RESULT_CORRECT) {
                 $correctJury = true;
                 $timeJury    = $submitTime;
-                $judgingMaxRuntime = $judging->getMaxRuntime();
-                if($judgingMaxRuntime < $runtimeJury) {
-                    $runtimeJury = $judgingMaxRuntime;
-                }
                 if (!$submission->isAfterFreeze()) {
                     $correctPubl = true;
                     $timePubl    = $submitTime;
-                    if($judgingMaxRuntime < $runtimePubl) {
-                        $runtimePubl = $judgingMaxRuntime;
-                    }
                     // Stop counting after a first correct submission, but
                     // only before the freeze. We need to consider all the
                     // submissions during the freeze, because we need to show
                     // them all to the public.
-                    // break;
+                    break;
                 }
             }
         }
@@ -550,9 +580,11 @@ class ScoreboardService
         $variants  = ['public' => false, 'restricted' => true];
         $numPoints = [];
         $totalTime = [];
+        $totalRuntime = [];
         foreach ($variants as $variant => $isRestricted) {
             $numPoints[$variant] = 0;
             $totalTime[$variant] = $team->getPenalty();
+            $totalRuntime[$variant] = 0.0;
         }
 
         $penaltyTime      = (int)$this->dj->dbconfig_get('penalty_time', 20);
@@ -582,6 +614,7 @@ class ScoreboardService
                     $numPoints[$variant] += $contestProblems[$probId]->getPoints();
                     $totalTime[$variant] += Utils::scoretime((float)$scoreCache->getSolveTime($isRestricted),
                                                              $scoreIsInSeconds) + $penalty;
+                    $totalRuntime[$variant] += $scoreCache->getRuntime($isRestricted);
                 }
             }
         }
@@ -592,13 +625,17 @@ class ScoreboardService
             ':teamid' => $team->getTeamid(),
             ':pointsRestricted' => $numPoints['restricted'],
             ':totalTimeRestricted' => $totalTime['restricted'],
+            ':totalRuntimeRestricted' => $totalRuntime['restricted'],
             ':pointsPublic' => $numPoints['public'],
             ':totalTimePublic' => $totalTime['public'],
+            ':totalRuntimePublic' => $totalRuntime['public'],
         ];
         $this->em->getConnection()->executeQuery('REPLACE INTO rankcache (cid, teamid,
             points_restricted, totaltime_restricted,
-            points_public, totaltime_public)
-            VALUES (:cid, :teamid, :pointsRestricted, :totalTimeRestricted, :pointsPublic, :totalTimePublic)', $params);
+            points_public, totaltime_public,
+            totalruntime_restricted, totalruntime_public)
+            VALUES (:cid, :teamid, :pointsRestricted, :totalTimeRestricted, :pointsPublic, :totalTimePublic,
+                    :totalRuntimeRestricted, :totalRuntimePublic)', $params);
 
         if ($this->em->getConnection()->fetchColumn('SELECT RELEASE_LOCK(:lock)',
                                                                [':lock' => $lockString]) != 1) {

@@ -74,6 +74,16 @@ class RankCache
     private $team;
 
     /**
+     * @ORM\Column(type="float")
+     */
+    private $totalruntime_restricted;
+
+    /**
+     * @ORM\Column(type="float")
+     */
+    private $totalruntime_public;
+
+    /**
      * Set pointsRestricted
      *
      * @param integer $pointsRestricted
@@ -215,5 +225,29 @@ class RankCache
     public function getTeam()
     {
         return $this->team;
+    }
+
+    public function getTotalruntimeRestricted(): ?float
+    {
+        return $this->totalruntime_restricted;
+    }
+
+    public function setTotalruntimeRestricted(float $totalruntime_restricted): self
+    {
+        $this->totalruntime_restricted = $totalruntime_restricted;
+
+        return $this;
+    }
+
+    public function getTotalruntimePublic(): ?float
+    {
+        return $this->totalruntime_public;
+    }
+
+    public function setTotalruntimePublic(float $totalruntime_public): self
+    {
+        $this->totalruntime_public = $totalruntime_public;
+
+        return $this;
     }
 }

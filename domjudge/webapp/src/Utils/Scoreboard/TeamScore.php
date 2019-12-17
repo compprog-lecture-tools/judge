@@ -32,6 +32,12 @@ class TeamScore
     protected $totalTime;
 
     /**
+     * @var float
+     */
+    protected $totalRuntime = 0.0;
+
+
+    /**
      * @var bool
      */
     protected $active;
@@ -117,6 +123,22 @@ class TeamScore
     public function addTotalTime(int $totalTime)
     {
         $this->totalTime += $totalTime;
+    }
+
+    /**
+     * @return float
+     */
+    public function getTotalRuntime(): float
+    {
+        return $this->totalRuntime;
+    }
+
+    /**
+     * @param float $time
+     */
+    public function addTotalRuntime(float $time)
+    {
+        $this->totalRuntime += $time;
     }
 
     /**

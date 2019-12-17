@@ -252,11 +252,12 @@ class Scoreboard
                 $this->scores[$scoreRow->getTeam()->getTeamid()]->addNumberOfPoints($contestProblem->getPoints());
                 $this->scores[$scoreRow->getTeam()->getTeamid()]->addSolveTime($solveTime);
                 $this->scores[$scoreRow->getTeam()->getTeamid()]->addTotalTime($solveTime + $penalty);
+                $this->scores[$scoreRow->getTeam()->getTeamid()]->addTotalRuntime($scoreRow->getRuntime($this->restricted));
             }
         }
 
         // Now sort the scores using the scoreboard sort function
-        uasort($this->scores, [static::class, 'scoreboardCompare']);
+        uasort($this->scores, [$this, 'scoreboardCompare']);
 
         // Loop over all teams to calculate ranks and totals
         $prevSortOrder  = -1;
@@ -326,7 +327,7 @@ class Scoreboard
      * @param TeamScore $b
      * @return int
      */
-    protected static function scoreboardCompare(TeamScore $a, TeamScore $b)
+    protected function scoreboardCompare(TeamScore $a, TeamScore $b)
     {
         // First order by our predefined sortorder based on category
         if ($a->getTeam()->getCategory()->getSortorder() != $b->getTeam()->getCategory()->getSortorder()) {
@@ -334,7 +335,7 @@ class Scoreboard
         }
 
         // Then compare scores
-        $scoreCompare = static::scoreCompare($a, $b);
+        $scoreCompare = $this->scoreCompare($a, $b);
         if ($scoreCompare != 0) {
             return $scoreCompare;
         }
@@ -357,21 +358,30 @@ class Scoreboard
      * Main score comparison function, called from the 'scoreboardCompare' wrapper
      * above. Scores based on the following criteria:
      * - highest points from correct solutions;
-     * - least amount of total time spent on these solutions;
+     * - least amount of total time spent on these solutions; (or lowest total runtime)
      * - the tie-breaker function below
      * @param TeamScore $a
      * @param TeamScore $b
      * @return int
      */
-    protected static function scoreCompare(TeamScore $a, TeamScore $b): int
+    protected function scoreCompare(TeamScore $a, TeamScore $b): int
     {
         // More correctness points than someone else means higher rank
         if ($a->getNumberOfPoints() != $b->getNumberOfPoints()) {
             return $b->getNumberOfPoints() <=> $a->getNumberOfPoints();
         }
         // Else, less time spent means higher rank
-        if ($a->getTotalTime() != $b->getTotalTime()) {
-            return $a->getTotalTime() <=> $b->getTotalTime();
+        if($this->getOrderByRuntime()) { // runtime ordering
+            $msA = round($a->getTotalRuntime()*1000); // round to ms to be consistent with displayed times
+            $msB = round($b->getTotalRuntime()*1000);
+            if ($msA != $msB) {
+                return $msA <=> $msB;
+            }
+
+        } else { // solvetime ordering
+            if ($a->getTotalTime() != $b->getTotalTime()) {
+                return $a->getTotalTime() <=> $b->getTotalTime();
+            }
         }
         // Else tie-breaker rule
         return static::scoreTiebreaker($a, $b);
