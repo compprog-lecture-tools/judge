@@ -228,8 +228,11 @@
                     {% set scoreCssClass = 'score_neutral' %}
                     {% if scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
                         {% set scoreCssClass = 'score_correct' %}
-                        {% if scoreboard.solvedFirst(score.team, problem) %}
-                            {% set scoreCssClass = scoreCssClass ~ ' score_first' %}
+                        {% if not scoreboard.getOrderByRuntime() and scoreboard.solvedFirst(score.team, problem) %}
+                                {% set scoreCssClass = scoreCssClass ~ ' score_first' %}
+                        {% endif %}
+                        {% if scoreboard.getOrderByRuntime() and scoreboard.isFastestImplementation(score.team, problem) %}
+                                {% set scoreCssClass = scoreCssClass ~ ' score_first' %}
                         {% endif %}
                     {% elseif showPending and scoreboard.matrix[score.team.teamid][problem.probid].numberOfPendingSubmissions > 0 %}
                         {% set scoreCssClass = 'score_pending' %}
@@ -334,7 +337,7 @@
     {% endif %}
 
     {% if showTeamSubmissions or jury %}
-        {% set cellColors = {first: 'Solved first', correct: 'Solved', incorrect: 'Tried, incorrect', pending: 'Tried, pending', neutral: 'Untried'} %}
+        {% set cellColors = {first: 'Solved, fastest', correct: 'Solved', incorrect: 'Tried, incorrect', pending: 'Tried, pending', neutral: 'Untried'} %}
         <table id="cell_legend" class="scoreboard scorelegend {% if jury %}scoreboard_jury{% endif %}">
             <thead>
             <tr>

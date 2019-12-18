@@ -25,6 +25,12 @@ class ProblemSummary
     protected $bestTimes = [];
 
     /**
+     * for each sortorder, the runtime of the fastest correct solution
+     * @var float[]
+     */
+    protected $bestRuntimes = [];
+
+    /**
      * @param int $sortorder
      * @return int
      */
@@ -115,5 +121,27 @@ class ProblemSummary
     public function updateBestTime(int $sortorder, $bestTime)
     {
         $this->bestTimes[$sortorder] = $bestTime;
+    }
+
+    /**
+     * @param int   $sortorder
+     * @return float
+     */
+    public function getBestRuntime(int $sortorder): float
+    {
+        return $this->bestRuntimes[$sortorder] ?? INF;
+    }
+
+    /**
+     * update fastest runtime if given time is
+     * a new record for this problem/sortorder
+     * @param int   $sortorder
+     * @param float $runTime
+     */
+    public function updateBestRuntime(int $sortorder, $runtime)
+    {
+        if ($runtime < $this->getBestRuntime($sortorder)) {
+            $this->bestRuntimes[$sortorder] = $runtime;
+        }
     }
 }

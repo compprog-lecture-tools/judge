@@ -310,6 +310,10 @@ class Scoreboard
                 if ($problemMatrixItem->isFirst()) {
                     $problemSummary->updateBestTime($sortOrder, $problemMatrixItem->getTime());
                 }
+                // aggregate minimum runtime of correct submissions for each problem
+                if ($problemMatrixItem->isCorrect()) {
+                    $problemSummary->updateBestRuntime($sortOrder, $problemMatrixItem->getRuntime());
+                }
             }
         }
     }
@@ -514,6 +518,23 @@ class Scoreboard
     public function solvedFirst(Team $team, ContestProblem $problem): bool
     {
         return $this->matrix[$team->getTeamid()][$problem->getProbid()]->isFirst();
+    }
+
+    /**
+     * Determine whether this team has the fastest correct implementation for this problem
+     * @param Team           $team
+     * @param ContestProblem $problem
+     * @return bool
+     */
+    public function isFastestImplementation(Team $team, ContestProblem $problem): bool
+    {
+        $item = $this->matrix[$team->getTeamid()][$problem->getProbid()];
+        if (!$item->isCorrect()) {
+            return false;
+        }
+        $sortorder = $team->getCategory()->getSortorder();
+        $bestTime = $this->summary->getProblem($problem->getProbid())->getBestRuntime($sortorder);
+        return $item->getRuntime() == $bestTime;
     }
 
     /**
