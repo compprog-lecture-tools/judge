@@ -357,7 +357,7 @@ class ScoreboardService
         $runtimeJury     = INF;
         $runtimePubl     = INF;
 
-        // do runtime separately to not interfere with break/contiune logic in normal submission counting
+        // do runtime separately to not interfere with break/continue logic in normal submission counting
         // we want to allow runtime improvements even after first correct submission
         foreach ($submissions as $submission) {
             /** @var Judging|ExternalJudgement|null $judging */
