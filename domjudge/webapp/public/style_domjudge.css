@@ -125,7 +125,7 @@ del {
     text-align: center;
 }
 .scoreboard td div {
-    width: 4em;
+    width: 4.5em;
     font-size: 120%;
     display: inline-block;
 }
@@ -143,7 +143,7 @@ del {
     padding: 0px;
 }
 .scoreboard td.score_cell {
-    min-width: 4.2em;
+    min-width: 4.7em;
     border-right: none;
 }
 .scoreboard a {
@@ -210,7 +210,8 @@ img.affiliation-logo {
 .score_incorrect { background: #e87272; }
 
 #scoresolv,#scoretotal { width: 2.5em; }
-.scorenc,.scorett,.scorepl { text-align: center; width: 2ex; }
+.scorenc,.scorepl { text-align: center; width: 2ex; }
+.scorett { text-align: center; width: 8ex; }
 .scorenc { font-weight: bold; }
 td.scorenc { border-color: silver; border-right: 0; }
 

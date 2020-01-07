@@ -217,7 +217,7 @@
             {% set totalPoints = score.numberOfPoints %}
             <td class="scorenc">{{ totalPoints }}</td>
             {% if scoreboard.getOrderByRuntime() %}
-                <td class="scorett">{{ score.totalRuntime | number_format(3)}}s</td>
+                <td class="scorett">{{ score.totalRuntime * 1000 }} ms</td>
             {% else %}
                 <td class="scorett">{{ totalTime }}</td>
             {% endif %}
