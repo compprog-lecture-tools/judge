@@ -359,6 +359,16 @@ class Scoreboard
     }
 
     /**
+     * Round runtimes to milliseconds for comparison to be consistent with whats is
+     * displayed on the scoreboard.
+     * @param float $runtime
+     * @return float
+     */
+    protected static function roundRuntime(float $runtime): float {
+        return round($runtime * 1000);
+    }
+
+    /**
      * Main score comparison function, called from the 'scoreboardCompare' wrapper
      * above. Scores based on the following criteria:
      * - highest points from correct solutions;
@@ -376,8 +386,8 @@ class Scoreboard
         }
         // Else, less time spent means higher rank
         if($this->getOrderByRuntime()) { // runtime ordering
-            $msA = round($a->getTotalRuntime()*1000); // round to ms to be consistent with displayed times
-            $msB = round($b->getTotalRuntime()*1000);
+            $msA = static::roundRuntime($a->getTotalRuntime());
+            $msB = static::roundRuntime($b->getTotalRuntime());
             if ($msA != $msB) {
                 return $msA <=> $msB;
             }
@@ -534,7 +544,7 @@ class Scoreboard
         }
         $sortorder = $team->getCategory()->getSortorder();
         $bestTime = $this->summary->getProblem($problem->getProbid())->getBestRuntime($sortorder);
-        return $item->getRuntime() == $bestTime;
+        return static::roundRuntime($item->getRuntime()) == static::roundRuntime($bestTime);
     }
 
     /**
