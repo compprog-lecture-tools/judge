@@ -37,7 +37,7 @@ class ScoreboardMatrixItem
     /**
      * @var float
      */
-    protected $runTime;
+    protected $runtime;
 
     /**
      * ScoreboardMatrixItem constructor.
@@ -47,9 +47,9 @@ class ScoreboardMatrixItem
      * @param int $numberOfPendingSubmissions
      * @param float|string $time
      * @param int $penaltyTime
-     * @param float $runTime
+     * @param float $runtime
      */
-    public function __construct(bool $isCorrect, bool $isFirst, int $numberOfSubmissions, int $numberOfPendingSubmissions, $time, int $penaltyTime, float $runTime)
+    public function __construct(bool $isCorrect, bool $isFirst, int $numberOfSubmissions, int $numberOfPendingSubmissions, $time, int $penaltyTime, float $runtime)
     {
         $this->isCorrect                  = $isCorrect;
         $this->isFirst                    = $isFirst;
@@ -57,7 +57,7 @@ class ScoreboardMatrixItem
         $this->numberOfPendingSubmissions = $numberOfPendingSubmissions;
         $this->time                       = $time;
         $this->penaltyTime                = $penaltyTime;
-        $this->runTime                    = $runTime;
+        $this->runtime                    = $runtime;
     }
 
     /**
@@ -113,6 +113,6 @@ class ScoreboardMatrixItem
      */
     public function getRuntime()
     {
-        return $this->runTime;
+        return $this->runtime;
     }
 }
