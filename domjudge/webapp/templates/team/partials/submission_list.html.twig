@@ -11,6 +11,7 @@
             <th scope="col">problem</th>
             <th scope="col">lang</th>
             <th scope="col">result</th>
+            <th scope="col">speed</th>
         </tr>
         </thead>
         <tbody>
@@ -54,6 +55,15 @@
                         {%- else %}
                             {{- submission.judgings.first.result | printResult -}}
                         {%- endif %}
+                    </a>
+                </td>
+                <td>
+                    <a data-ajax-modal data-ajax-modal-after="markSeen" {% if link %}href="{{ link }}"{% endif %}>
+                        {% if link %}
+                            {{ 1000*submission.judgings.first.getMaxRuntime() }} ms
+                        {% else %}
+                            -
+                        {% endif %}
                     </a>
                 </td>
             </tr>

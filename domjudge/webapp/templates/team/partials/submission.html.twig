@@ -40,6 +40,9 @@
                 <div class="p-2">
                     Run result: {{ judging.result | printResult }}
                 </div>
+                <div class="p-2">
+                    Runtime: <b>{{ judging.getMaxRuntime()*1000 }} ms</b>
+                </div>
             </div>
         {% endif %}
 
