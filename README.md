@@ -51,6 +51,7 @@ The following broad changes were made to the DOMjudge sources:
  * HPI styling and links to imprint page
  * Added C++17 language
  * Added data fixtures containing the settings for production and some development conveniences
+ * Added contests sorted by runtime (after sorting by number of problems solved)
  
 ### Upgrading to a newer DOMjudge version
 
