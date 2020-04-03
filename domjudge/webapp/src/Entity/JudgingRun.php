@@ -2,6 +2,7 @@
 namespace App\Entity;
 
 use App\Utils\Utils;
+use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
 use JMS\Serializer\Annotation as Serializer;
 
@@ -98,12 +99,20 @@ class JudgingRun extends BaseApiEntity
     private $testcase;
 
     /**
-     * @var JudgingRunOutput
-     * @ORM\OneToOne(targetEntity="App\Entity\JudgingRunOutput", mappedBy="run", cascade={"persist"})
+     * We use a OneToMany instead of a OneToOne here, because otherwise this
+     * relation will always be loaded. See the commit message of commit
+     * 9e421f96691ec67ed62767fe465a6d8751edd884 for a more elaborate explanation
+     *
+     * @var JudgingRunOutput[]|ArrayCollection
+     * @ORM\OneToMany(targetEntity="JudgingRunOutput", mappedBy="run", cascade={"persist"}, orphanRemoval=true)
      * @Serializer\Exclude()
      */
     private $output;
 
+    public function __construct()
+    {
+        $this->output = new ArrayCollection();
+    }
 
     /**
      * Get runid
@@ -333,8 +342,9 @@ class JudgingRun extends BaseApiEntity
      */
     public function setOutput(JudgingRunOutput $output)
     {
-        $this->output = $output;
-        $this->output->setRun($this);
+        $this->output->clear();
+        $this->output->add($output);
+        $output->setRun($this);
 
         return $this;
     }
@@ -346,6 +356,6 @@ class JudgingRun extends BaseApiEntity
      */
     public function getOutput()
     {
-        return $this->output;
+        return $this->output->first() ?: null;
     }
 }

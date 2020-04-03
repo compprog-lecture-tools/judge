@@ -106,14 +106,16 @@ class PublicController extends BaseController
             $refreshUrl = sprintf('?%s', http_build_query($refreshParams));
         }
 
-        $data = $this->scoreboardService->getScoreboardTwigData($request, $response, $refreshUrl, false, true, $static,
-                                                                $contest);
+        $data = $this->scoreboardService->getScoreboardTwigData(
+            $request, $response, $refreshUrl, false, true, $static, $contest
+        );
 
         if ($static) {
             $data['hide_menu'] = true;
         }
 
         if ($request->isXmlHttpRequest()) {
+            $data['current_contest'] = $contest;
             return $this->render('partials/scoreboard.html.twig', $data, $response);
         }
         return $this->render('public/scoreboard.html.twig', $data, $response);
@@ -190,7 +192,7 @@ class PublicController extends BaseController
                 ->from(ContestProblem::class, 'cp')
                 ->join('cp.problem', 'p')
                 ->leftJoin('p.testcases', 'tc')
-                ->select('p', 'cp', 'SUM(tc.sample) AS numsamples')
+                ->select('partial p.{probid,name,externalid,problemtext_type,timelimit,memlimit}', 'cp', 'SUM(tc.sample) AS numsamples')
                 ->andWhere('cp.contest = :contest')
                 ->andWhere('cp.allowSubmit = 1')
                 ->setParameter(':contest', $contest)
@@ -222,9 +224,9 @@ class PublicController extends BaseController
         }
         /** @var ContestProblem $contestProblem */
         $contestProblem = $this->em->getRepository(ContestProblem::class)->find([
-                                                                                               'problem' => $probId,
-                                                                                               'contest' => $contest,
-                                                                                           ]);
+            'problem' => $probId,
+            'contest' => $contest,
+        ]);
         if (!$contestProblem) {
             throw new NotFoundHttpException(sprintf('Problem p%d not found or not available', $probId));
         }
@@ -279,9 +281,9 @@ class PublicController extends BaseController
         }
         /** @var ContestProblem $contestProblem */
         $contestProblem = $this->em->getRepository(ContestProblem::class)->find([
-                                                                                               'problem' => $probId,
-                                                                                               'contest' => $contest,
-                                                                                           ]);
+            'problem' => $probId,
+            'contest' => $contest,
+        ]);
         if (!$contestProblem) {
             throw new NotFoundHttpException(sprintf('Problem p%d not found or not available', $probId));
         }
@@ -346,9 +348,9 @@ class PublicController extends BaseController
         }
         /** @var ContestProblem $contestProblem */
         $contestProblem = $this->em->getRepository(ContestProblem::class)->find([
-                                                                                               'problem' => $probId,
-                                                                                               'contest' => $contest,
-                                                                                           ]);
+            'problem' => $probId,
+            'contest' => $contest,
+        ]);
         if (!$contestProblem) {
             throw new NotFoundHttpException(sprintf('Problem p%d not found or not available', $probId));
         }

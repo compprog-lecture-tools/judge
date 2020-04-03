@@ -86,6 +86,7 @@ class TeamAffiliationController extends BaseController
 
         if ($showFlags) {
             $table_fields['country'] = ['title' => 'country', 'sort' => true];
+            $table_fields['logo'] = ['title' => 'logo', 'sort' => false];
         }
 
         $table_fields['num_teams'] = ['title' => '# teams', 'sort' => true];
@@ -147,6 +148,18 @@ class TeamAffiliationController extends BaseController
                 ];
             }
 
+            $organizationFilePath = sprintf('images/affiliations/%s.png', $teamAffiliation->getExternalid() ?? $teamAffiliation->getAffilid());
+            $affiliationLogo = '';
+            if (file_exists($webDir . '/' . $organizationFilePath)) {
+                $affiliationLogo = sprintf('<img src="%s" alt="%s" class="affiliation-logo">',
+                    $assetPackage->getUrl($organizationFilePath), $teamAffiliation->getShortname());
+            }
+
+            $affiliationdata['logo'] = [
+                'value' => $affiliationLogo,
+                'title' => $teamAffiliation->getShortname(),
+            ];
+
             $team_affiliations_table[] = [
                 'data' => $affiliationdata,
                 'actions' => $affiliationactions,
@@ -189,20 +202,18 @@ class TeamAffiliationController extends BaseController
         ];
 
         if ($currentContest = $this->dj->getCurrentContest()) {
-            $data['scoreboard']           = $scoreboardService->getScoreboard($currentContest, true);
-            $data['showFlags']            = $this->dj->dbconfig_get('show_flags', true);
-            $data['showAffiliationLogos'] = $this->dj->dbconfig_get('show_affiliation_logos', false);
-            $data['showAffiliations']     = $this->dj->dbconfig_get('show_affiliations', true);
-            $data['showPending']          = $this->dj->dbconfig_get('show_pending', false);
-            $data['showTeamSubmissions']  = $this->dj->dbconfig_get('show_teams_submissions', true);
-            $data['scoreInSeconds']       = $this->dj->dbconfig_get('score_in_seconds', false);
-            $data['limitToTeams']         = $teamAffiliation->getTeams();
+            $data = array_merge(
+                $data,
+                $scoreboardService->getScoreboardTwigData(
+                    $request, null, '', true, false, false, $currentContest
+                )
+            );
+            $data['limitToTeams'] = $teamAffiliation->getTeams();
         }
 
         // For ajax requests, only return the submission list partial
         if ($request->isXmlHttpRequest()) {
             $data['displayRank'] = true;
-            $data['jury']        = true;
             return $this->render('partials/scoreboard_table.html.twig', $data);
         }
 
@@ -232,8 +243,10 @@ class TeamAffiliationController extends BaseController
         if ($form->isSubmitted() && $form->isValid()) {
             $this->saveEntity($this->em, $this->eventLogService, $this->dj, $teamAffiliation,
                               $teamAffiliation->getAffilid(), false);
-            return $this->redirect($this->generateUrl('jury_team_affiliation',
-                                                      ['affilId' => $teamAffiliation->getAffilid()]));
+            return $this->redirect($this->generateUrl(
+                'jury_team_affiliation',
+                ['affilId' => $teamAffiliation->getAffilid()]
+            ));
         }
 
         return $this->render('jury/team_affiliation_edit.html.twig', [
@@ -281,8 +294,10 @@ class TeamAffiliationController extends BaseController
             $this->em->persist($teamAffiliation);
             $this->saveEntity($this->em, $this->eventLogService, $this->dj, $teamAffiliation,
                               $teamAffiliation->getAffilid(), true);
-            return $this->redirect($this->generateUrl('jury_team_affiliation',
-                                                      ['affilId' => $teamAffiliation->getAffilid()]));
+            return $this->redirect($this->generateUrl(
+                'jury_team_affiliation',
+                ['affilId' => $teamAffiliation->getAffilid()]
+            ));
         }
 
         return $this->render('jury/team_affiliation_add.html.twig', [

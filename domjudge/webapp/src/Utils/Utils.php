@@ -2,6 +2,7 @@
 namespace App\Utils;
 
 use App\Entity\SubmissionFile;
+use DateTime;
 
 /**
  * Generic utility class.
@@ -447,6 +448,16 @@ class Utils
             . ($floored ? '' : $millis);
     }
 
+    // Parse a string as time and return as epoch in float format (with
+    // optional fractional part). The original time string should be in one of
+    // the formats understood by DateTime (e.g. an ISO 8601 date and time with
+    // fractional seconds). Throws an exception if $time cannot be parsed.
+    public static function to_epoch_float(string $time) : float
+    {
+        $dt = new DateTime($time);
+        return (float)sprintf('%d.%06d', $dt->getTimestamp(), $dt->format('u'));
+    }
+
     /**
      * Returns epoch with microsecond resolution. Can be used to
      * simulate MySQL UNIX_TIMESTAMP() function to create insert
@@ -577,10 +588,10 @@ class Utils
      * @param bool $solved Whether there was at least one correct submission by this team for this problem
      * @param int $numSubmissions The total number of tries for this problem by this team
      * @param int $penaltyTime The penalty time for every wrong submission
-     * @param bool $scoreIsInSecods Whether scoring is in seconds
+     * @param bool $scoreIsInSeconds Whether scoring is in seconds
      * @return int
      */
-    public static function calcPenaltyTime(bool $solved, int $numSubmissions, int $penaltyTime, bool $scoreIsInSecods)
+    public static function calcPenaltyTime(bool $solved, int $numSubmissions, int $penaltyTime, bool $scoreIsInSeconds)
     {
         if (!$solved) {
             return 0;
@@ -589,7 +600,7 @@ class Utils
         $result = ($numSubmissions - 1) * $penaltyTime;
         //  Convert the penalty time to seconds if the configuration
         //  parameter to compute scores to the second is set.
-        if ($scoreIsInSecods) {
+        if ($scoreIsInSeconds) {
             $result *= 60;
         }
 

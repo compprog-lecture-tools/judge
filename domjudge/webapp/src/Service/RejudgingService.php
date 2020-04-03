@@ -122,39 +122,35 @@ class RejudgingService
         }
 
         // Get all submissions that we should consider
-        $queryBuilder = $this->em->createQueryBuilder()
+        $submissions = $this->em->createQueryBuilder()
             ->from(Submission::class, 's')
-            ->join('s.judgings', 'j')
-            ->select('s.submitid, s.cid, s.teamid, s.probid, j.judgingid, j.result')
-            ->andWhere('s.rejudging = :rejudging');
-        if ($action === self::ACTION_APPLY) {
-            $queryBuilder->andWhere('j.rejudging = :rejudging');
-        }
-        /** @var array $submissions */
-        $submissions = $queryBuilder
+            ->leftJoin('s.judgings', 'j', 'WITH', 'j.rejudging = :rejudging')
+            ->select('s.submitid, s.cid, s.teamid, s.probid, j.judgingid')
+            ->andWhere('s.rejudging = :rejudging')
             ->setParameter(':rejudging', $rejudging)
-            ->groupBy('s.submitid')
-            ->groupBy('j.judgingid')
             ->getQuery()
             ->getResult();
 
         $this->dj->auditlog('rejudging', $rejudgingId, $action . 'ing rejudge', '(start)');
 
-        // Add missing state events for all active contests. We do this here and disable doing it in the
-        // loop when calling EventLogService::log, because then we would do the same check a lot of
-        // times, which is really inefficient and slow. Note that it might be the case that a state
-        // change event will happen exactly during applying a rejudging *and* that no client is
-        // listening. Given that applying a rejudging will only create judgement and run events and
-        // that for these events contest state change events don't really matter, we will only check
+        // Add missing state events for all active contests. We do this here
+        // and disable doing it in the loop when calling EventLogService::log,
+        // because then we would do the same check a lot of times, which is
+        // really inefficient and slow. Note that it might be the case that a
+        // state change event will happen exactly during applying a rejudging
+        // *and* that no client is listening. Given that applying a rejudging
+        // will only create judgement and run events and that for these events
+        // contest state change events don't really matter, we will only check
         // it once, here.
-        // We will also not check dependent object events in the loop, because if we apply a
-        // rejudging, the original judgings will already have triggered all dependent events.
+        // We will also not check dependent object events in the loop, because
+        // if we apply a rejudging, the original judgings will already have
+        // triggered all dependent events.
         foreach ($this->dj->getCurrentContests() as $contest) {
             $this->eventLogService->addMissingStateEvents($contest);
         }
 
-        // This loop uses direct queries instead of Doctrine classes to speed it up drastically
-
+        // This loop uses direct queries instead of Doctrine classes to speed
+        // it up drastically.
         foreach ($submissions as $submission) {
             if ($progressReporter) {
                 $progressReporter(sprintf('s%s, ', $submission['submitid']));
@@ -162,7 +158,7 @@ class RejudgingService
 
             if ($action === self::ACTION_APPLY) {
                 $this->em->transactional(function () use ($submission, $rejudgingId) {
-                    // First invalidate old judging, maybe different from prevjudgingid!
+                    // First invalidate old judging, may be different from prevjudgingid!
                     $this->em->getConnection()->executeQuery(
                         'UPDATE judging SET valid=0 WHERE submitid = :submitid',
                         [':submitid' => $submission['submitid']]
@@ -180,7 +176,7 @@ class RejudgingService
                         [':submitid' => $submission['submitid']]
                     );
 
-                    // Last update cache
+                    // Update cache
                     $contest = $this->em->getRepository(Contest::class)->find($submission['cid']);
                     $team    = $this->em->getRepository(Team::class)->find($submission['teamid']);
                     $problem = $this->em->getRepository(Problem::class)->find($submission['probid']);
@@ -207,7 +203,7 @@ class RejudgingService
                                                     $submission['cid'], null, null, false);
                     }
 
-                    // Update ballons
+                    // Update balloons
                     $contest    = $this->em->getRepository(Contest::class)->find($submission['cid']);
                     $submission = $this->em->getRepository(Submission::class)->find($submission['submitid']);
                     $this->balloonService->updateBalloons($contest, $submission);

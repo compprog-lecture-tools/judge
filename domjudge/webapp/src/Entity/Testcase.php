@@ -78,6 +78,15 @@ class Testcase
 
     /**
      * @var string
+     * @ORM\Column(type="string", name="orig_input_filename", length=255,
+     *     options={"comment"="Original basename of the input file.","default"=NULL},
+     *     nullable=true)
+     * @Serializer\Exclude()
+     */
+    private $orig_input_filename;
+
+    /**
+     * @var string
      * @ORM\Column(type="string", name="image_type", length=4,
      *     options={"comment"="File type of the image and thumbnail","default"="NULL"},
      *     nullable=true)
@@ -108,8 +117,12 @@ class Testcase
     private $external_runs;
 
     /**
-     * @var TestcaseContent
-     * @ORM\OneToOne(targetEntity="TestcaseContent", mappedBy="testcase", cascade={"persist"})
+     * We use a OneToMany instead of a OneToOne here, because otherwise this
+     * relation will always be loaded. See the commit message of commit
+     * 9e421f96691ec67ed62767fe465a6d8751edd884 for a more elaborate explanation
+     *
+     * @var TestcaseContent[]|ArrayCollection
+     * @ORM\OneToMany(targetEntity="TestcaseContent", mappedBy="testcase", cascade={"persist"}, orphanRemoval=true)
      * @Serializer\Exclude()
      */
     private $content;
@@ -128,6 +141,7 @@ class Testcase
     {
         $this->judging_runs = new ArrayCollection();
         $this->external_runs = new ArrayCollection();
+        $this->content = new ArrayCollection();
     }
 
     /**
@@ -267,6 +281,30 @@ class Testcase
     }
 
     /**
+     * Set original input filename
+     *
+     * @param string $origInputFilename
+     *
+     * @return Testcase
+     */
+    public function setOrigInputFilename($origInputFilename)
+    {
+        $this->orig_input_filename = $origInputFilename;
+
+        return $this;
+    }
+
+    /**
+     * Get original input filename
+     *
+     * @return string
+     */
+    public function getOrigInputFilename()
+    {
+        return $this->orig_input_filename;
+    }
+
+    /**
      * Set imageType
      *
      * @param string $imageType
@@ -381,8 +419,9 @@ class Testcase
      */
     public function setContent(?TestcaseContent $content)
     {
-        $this->content = $content;
-        $this->content->setTestcase($this);
+        $this->content->clear();
+        $this->content->add($content);
+        $content->setTestcase($this);
 
         return $this;
     }
@@ -394,7 +433,7 @@ class Testcase
      */
     public function getContent(): ?TestcaseContent
     {
-        return $this->content;
+        return $this->content->first() ?: null;
     }
 
     /**

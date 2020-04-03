@@ -9,11 +9,13 @@ GITSHA=$(git rev-parse HEAD || true)
 # Set up
 "$( dirname "${BASH_SOURCE[0]}" )"/base.sh
 
+LOGFILE="/opt/domjudge/domserver/webapp/var/log/prod.log"
+
 function log_on_err() {
 	echo -e "\\n\\n=======================================================\\n"
 	echo "Symfony log:"
-	if sudo test -f /opt/domjudge/domserver/webapp/var/log/prod.log; then
-		sudo cat /opt/domjudge/domserver/webapp/var/log/prod.log
+	if sudo test -f "$LOGFILE" ; then
+		sudo cat "$LOGFILE"
 	fi
 }
 
@@ -41,6 +43,7 @@ fi
 # download domjudge-scripts for API check
 cd $HOME
 composer -n require justinrainbow/json-schema
+echo -e "\033[0m"
 PATH=${PATH}:${HOME}/vendor/bin
 git clone --depth=1 https://github.com/DOMjudge/domjudge-scripts.git
 CHECK_API=${HOME}/domjudge-scripts/contest-api/check-api.sh
@@ -50,23 +53,23 @@ TIMEHELP=$((8*60*60))
 # Database changes to make the REST API and event feed match better.
 cat <<EOF | mysql domjudge
 DELETE FROM clarification;
-UPDATE contest SET starttime = UNIX_TIMESTAMP()-$TIMEHELP WHERE cid = 2;
-UPDATE contest SET freezetime = UNIX_TIMESTAMP()+15 WHERE cid = 2;
-UPDATE contest SET endtime = UNIX_TIMESTAMP()+$TIMEHELP WHERE cid = 2;
+UPDATE contest SET starttime  = UNIX_TIMESTAMP()-$TIMEHELP WHERE cid = 2;
+UPDATE contest SET freezetime = UNIX_TIMESTAMP()+15        WHERE cid = 2;
+UPDATE contest SET endtime    = UNIX_TIMESTAMP()+$TIMEHELP WHERE cid = 2;
 UPDATE team_category SET visible = 1;
 EOF
 
 # start judgedaemon
 cd /opt/domjudge/judgehost/
-bin/judgedaemon -n 0 &
+sudo -u domjudge bin/judgedaemon -n 0 &
 sleep 5
 
 # write out current log to learn why it might be broken
 cat /var/log/nginx/domjudge.log
 
 # Print the symfony log if it exists
-if sudo test -f /opt/domjudge/domserver/webapp/var/log/prod.log; then
-  sudo cat /opt/domjudge/domserver/webapp/var/log/prod.log
+if sudo test -f "$LOGFILE" ; then
+  sudo cat "$LOGFILE"
 fi
 
 # submit test programs

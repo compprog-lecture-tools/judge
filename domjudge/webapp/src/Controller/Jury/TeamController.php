@@ -130,6 +130,14 @@ class TeamController extends BaseController
             'stats' => ['title' => 'stats', 'sort' => true,],
         ];
 
+        $userDataPerTeam = $this->em->createQueryBuilder()
+            ->from(Team::class, 't', 't.teamid')
+            ->leftJoin('t.users', 'u')
+            ->select('t.teamid', 'u.last_ip_address', 'u.first_login')
+            ->groupBy('t.teamid')
+            ->getQuery()
+            ->getResult();
+
         $propertyAccessor = PropertyAccess::createPropertyAccessor();
         $teams_table      = [];
         foreach ($teams as $t) {
@@ -147,7 +155,7 @@ class TeamController extends BaseController
             $num_submitted = 0;
             $status = 'noconn';
             $statustitle = "no connections made";
-            if (!$t->getUsers()->isEmpty() && $t->getUsers()->first()->getFirstLogin()) {
+            if ($userDataPerTeam[$t->getTeamid()]['first_login'] ?? null) {
                 $status = 'crit';
                 $statustitle = "teampage viewed, no submissions";
             }
@@ -201,8 +209,8 @@ class TeamController extends BaseController
             }
 
             // render IP address nicely
-            if (!$t->getUsers()->isEmpty() && $t->getUsers()->first()->getLastIpAddress()) {
-                $teamdata['ip_address']['value'] = Utils::printhost($t->getUsers()->first()->getLastIpAddress());
+            if ($userDataPerTeam[$t->getTeamid()]['last_ip_address'] ?? null) {
+                $teamdata['ip_address']['value'] = Utils::printhost($userDataPerTeam[$t->getTeamid()]['last_ip_address']);
             }
             $teamdata['ip_address']['default']  = '-';
             $teamdata['ip_address']['cssclass'] = 'text-monospace small';
@@ -284,14 +292,16 @@ class TeamController extends BaseController
         }
 
         if ($currentContest) {
-            $data['scoreboard']           = $scoreboardService->getTeamScoreboard($currentContest, $teamId, true);
-            $data['showFlags']            = $this->dj->dbconfig_get('show_flags', true);
-            $data['showAffiliationLogos'] = $this->dj->dbconfig_get('show_affiliation_logos', false);
-            $data['showAffiliations']     = $this->dj->dbconfig_get('show_affiliations', true);
-            $data['showPending']          = $this->dj->dbconfig_get('show_pending', false);
-            $data['showTeamSubmissions']  = $this->dj->dbconfig_get('show_teams_submissions', true);
-            $data['scoreInSeconds']       = $this->dj->dbconfig_get('score_in_seconds', false);
-            $data['limitToTeams']         = [$team];
+            $scoreboard = $scoreboardService
+                ->getTeamScoreboard($currentContest, $teamId, true);
+            $data = array_merge(
+                $data,
+                $scoreboardService->getScoreboardTwigData(
+                    $request, null, '', true, false, false,
+                    $currentContest, $scoreboard
+                )
+            );
+            $data['limitToTeams'] = [$team];
         }
 
         // We need to clear the entity manager, because loading the team scoreboard seems to break getting submission
@@ -322,8 +332,9 @@ class TeamController extends BaseController
             $restrictionText = implode(', ', $restrictionTexts);
         }
         $restrictions['teamid'] = $teamId;
-        list($submissions, $submissionCounts) = $submissionService->getSubmissionList($this->dj->getCurrentContests(),
-                                                                                      $restrictions);
+        list($submissions, $submissionCounts) =
+            $submissionService->getSubmissionList($this->dj->getCurrentContests(), $restrictions);
+
         $data['restrictionText']    = $restrictionText;
         $data['submissions']        = $submissions;
         $data['submissionCounts']   = $submissionCounts;
@@ -362,8 +373,10 @@ class TeamController extends BaseController
         if ($form->isSubmitted() && $form->isValid()) {
             $this->saveEntity($this->em, $this->eventLogService, $this->dj, $team,
                               $team->getTeamid(), false);
-            return $this->redirect($this->generateUrl('jury_team',
-                                                      ['teamId' => $team->getTeamid()]));
+            return $this->redirect($this->generateUrl(
+                'jury_team',
+                ['teamId' => $team->getTeamid()]
+            ));
         }
 
         return $this->render('jury/team_edit.html.twig', [
@@ -434,8 +447,10 @@ class TeamController extends BaseController
             $this->em->persist($team);
             $this->saveEntity($this->em, $this->eventLogService, $this->dj, $team,
                               $team->getTeamid(), true);
-            return $this->redirect($this->generateUrl('jury_team',
-                                                      ['teamId' => $team->getTeamid()]));
+            return $this->redirect($this->generateUrl(
+                'jury_team',
+                ['teamId' => $team->getTeamid()]
+            ));
         }
 
         return $this->render('jury/team_add.html.twig', [

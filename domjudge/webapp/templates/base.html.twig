@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- DOMjudge version {{ DOMJUDGE_VERSION }} sftb-->
+    <!-- DOMjudge version {{ DOMJUDGE_VERSION }} -->
     <meta charset="{{ DJ_CHARACTER_SET }}">
     <title>{% block title %}DOMjudge{% endblock %}</title>
     <link rel="icon" href="{{ asset('favicon.ico') }}">
@@ -38,7 +38,9 @@
 {% endblock %}
 
 <script>
-    var domjudge_base_url = "{{ app.request.getBaseURL() }}";
+    {% if app.request %}
+        var domjudge_base_url = "{{ app.request.getBaseURL() }}";
+    {% endif %}
     $(function () {
         $('body').on('change', '.custom-file-input', function () {
             var files = this.files;

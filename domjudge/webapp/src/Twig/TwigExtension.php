@@ -393,7 +393,13 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
     public function displayTestcaseResults(array $testcases, bool $submissionDone, bool $isExternal = false)
     {
         $results = '';
+        $lastTypeSample = true;
         foreach ($testcases as $testcase) {
+            if ($testcase->getSample() != $lastTypeSample) {
+                $results .= ' | ';
+                $lastTypeSample = $testcase->getSample();
+            }
+
             $class     = $submissionDone ? 'secondary' : 'primary';
             $text      = '?';
             $isCorrect = false;
@@ -414,16 +420,23 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
                 }
             }
 
-            $description = $testcase->getDescription(true);
-
-
-            $extraTitle = '';
-            if ($run && $runResult !== null) {
-                $extraTitle = sprintf(', runtime: %ss, result: %s', $run->getRuntime(), $runResult);
+            $titleElements = array("#" . $testcase->getRank());
+            if (!empty($testcase->getOrigInputFilename())) {
+                $titleElements[] = "name: " . $testcase->getOrigInputFilename();
             }
-            $icon    = sprintf('<span class="badge badge-%s badge-testcase">%s</span>', $class, $text);
-            $results .= sprintf('<a title="#%d, desc: %s%s" href="#run-%d" %s>%s</a>', $testcase->getRank(),
-                                $description, $extraTitle, $testcase->getRank(),
+
+            $description = $testcase->getDescription(true);
+            if (!empty($description)) {
+                $titleElements[] = "desc: " . $description;
+            }
+
+            if ($run && $runResult !== null) {
+                $titleElements[] = sprintf('runtime: %ss', $run->getRuntime());
+                $titleElements[] = sprintf('result: %s', $runResult);
+            }
+            $icon     = sprintf('<span class="badge badge-%s badge-testcase">%s</span>', $class, $text);
+            $results .= sprintf('<a title="%s" href="#run-%d" %s>%s</a>',
+                                join(', ', $titleElements), $testcase->getRank(),
                                 $isCorrect ? 'onclick="display_correctruns(true);"' : '', $icon);
         }
 
@@ -489,9 +502,9 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
         if (!empty($extCcsUrl)) {
             $dataSource = $this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL);
             if ($dataSource == 2) {
-                return str_replace(':id:', $submission->getExternalid(), $extCcsUrl);
+                return str_replace(['[contest]', '[id]'], [$submission->getContest()->getExternalid(), $submission->getExternalid()], $extCcsUrl);
             } elseif ($dataSource == 1) {
-                return str_replace(':id:', $submission->getSubmitid(), $extCcsUrl);
+                return str_replace(['[contest]', '[id]'], [$submission->getContest()->getExternalid(), $submission->getSubmitid()], $extCcsUrl);
             }
         }
 
@@ -765,23 +778,23 @@ JS;
     public function showDiff(SubmissionFile $newFile, SubmissionFile $oldFile)
     {
         $newsourcefile = $this->submissionService->getSourceFilename([
-                                                                         'cid' => $newFile->getSubmission()->getCid(),
-                                                                         'submitid' => $newFile->getSubmitid(),
-                                                                         'teamid' => $newFile->getSubmission()->getTeamid(),
-                                                                         'probid' => $newFile->getSubmission()->getProbid(),
-                                                                         'langid' => $newFile->getSubmission()->getLangid(),
-                                                                         'rank' => $newFile->getRank(),
-                                                                         'filename' => $newFile->getFilename()
-                                                                     ]);
+            'cid' => $newFile->getSubmission()->getCid(),
+            'submitid' => $newFile->getSubmitid(),
+            'teamid' => $newFile->getSubmission()->getTeamid(),
+            'probid' => $newFile->getSubmission()->getProbid(),
+            'langid' => $newFile->getSubmission()->getLangid(),
+            'rank' => $newFile->getRank(),
+            'filename' => $newFile->getFilename()
+        ]);
         $oldsourcefile = $this->submissionService->getSourceFilename([
-                                                                         'cid' => $oldFile->getSubmission()->getCid(),
-                                                                         'submitid' => $oldFile->getSubmitid(),
-                                                                         'teamid' => $oldFile->getSubmission()->getTeamid(),
-                                                                         'probid' => $oldFile->getSubmission()->getProbid(),
-                                                                         'langid' => $oldFile->getSubmission()->getLangid(),
-                                                                         'rank' => $oldFile->getRank(),
-                                                                         'filename' => $oldFile->getFilename()
-                                                                     ]);
+            'cid' => $oldFile->getSubmission()->getCid(),
+            'submitid' => $oldFile->getSubmitid(),
+            'teamid' => $oldFile->getSubmission()->getTeamid(),
+            'probid' => $oldFile->getSubmission()->getProbid(),
+            'langid' => $oldFile->getSubmission()->getLangid(),
+            'rank' => $oldFile->getRank(),
+            'filename' => $oldFile->getFilename()
+        ]);
 
         require_once $this->dj->getDomjudgeEtcDir() . '/domserver-static.php';
 

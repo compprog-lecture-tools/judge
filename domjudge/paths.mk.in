@@ -128,7 +128,7 @@ judgehost_dirs = $(judgehost_bindir) $(judgehost_etcdir) $(judgehost_libdir) \
                  $(judgehost_libjudgedir) $(judgehost_logdir) \
                  $(judgehost_rundir) $(judgehost_judgedir)
 
-docs_dirs      = $(addprefix $(domjudge_docdir)/,admin judge team examples logos)
+docs_dirs      = $(addprefix $(domjudge_docdir)/,manual team examples logos)
 
 # Macro to substitute configure variables.
 # Defined in makefile to allow for expansion of ${prefix} etc. during
@@ -138,6 +138,7 @@ define substconfigvars
 @[ -n "$(QUIET)" ] || echo "Substituting configure variables in '$@'."
 @cat $< | sed \
 	-e "s|@configure_input[@]|Generated from '$<' on `date`.|g" \
+	-e 's,@PACKAGE_NAME[@],@PACKAGE_NAME@,g' \
 	-e 's,@DOMJUDGE_VERSION[@],@DOMJUDGE_VERSION@,g' \
 	-e 's,@domserver_bindir[@],@domserver_bindir@,g' \
 	-e 's,@domserver_etcdir[@],@domserver_etcdir@,g' \

@@ -135,9 +135,9 @@ class ProblemController extends BaseController
                     } else {
                         $contest = $this->em->getRepository(Contest::class)->find($contestId);
                     }
-                    $newProblem = $this->importProblemService->importZippedProblem($zip, $clientName,
-                                                                          null, $contest,
-                                                                          $messages);
+                    $newProblem = $this->importProblemService->importZippedProblem(
+                        $zip, $clientName, null, $contest, $messages
+                    );
                     $allMessages = array_merge($allMessages, $messages);
                     if ($newProblem) {
                         $this->dj->auditlog('problem', $newProblem->getProbid(), 'upload zip',
@@ -174,7 +174,7 @@ class ProblemController extends BaseController
         }
 
         $problems = $this->em->createQueryBuilder()
-            ->select('p', 'COUNT(tc.testcaseid) AS testdatacount')
+            ->select('partial p.{probid,externalid,name,timelimit,memlimit,outputlimit}', 'COUNT(tc.testcaseid) AS testdatacount')
             ->from(Problem::class, 'p')
             ->leftJoin('p.testcases', 'tc')
             ->orderBy('p.probid', 'ASC')
@@ -196,6 +196,19 @@ class ProblemController extends BaseController
             $table_fields = array_slice($table_fields, 0, 1, true) +
                 [$externalIdField => ['title' => 'external ID', 'sort' => true]] +
                 array_slice($table_fields, 1, null, true);
+        }
+
+        $contestCountData = $this->em->createQueryBuilder()
+            ->from(ContestProblem::class, 'cp')
+            ->select('COUNT(cp.shortname) AS count', 'p.probid')
+            ->join('cp.problem', 'p')
+            ->groupBy('cp.problem')
+            ->getQuery()
+            ->getResult();
+
+        $contestCounts = [];
+        foreach ($contestCountData as $problemCount) {
+            $contestCounts[$problemCount['probid']] = $problemCount['count'];
         }
 
         $propertyAccessor = PropertyAccess::createPropertyAccessor();
@@ -268,7 +281,7 @@ class ProblemController extends BaseController
 
             // merge in the rest of the data
             $problemdata = array_merge($problemdata, [
-                'num_contests' => ['value' => (int)($p->getContestProblems()->count())],
+                'num_contests' => ['value' => (int)($contestCounts[$p->getProbid()] ?? 0)],
                 'num_testcases' => ['value' => (int)$row['testdatacount']],
             ]);
 
@@ -629,17 +642,25 @@ class ProblemController extends BaseController
                             $md5Method     = sprintf('setMd5sum%s', ucfirst($type));
                             $testcase->getContent()->{$contentMethod}($content);
                             $testcase->{$md5Method}(md5($content));
+                            if ($type == 'input') {
+                                $testcase->setOrigInputFilename(basename($file->getClientOriginalName(), '.in'));
+                            }
                         }
 
                         $this->dj->auditlog('testcase', $probId, 'updated',
-                                                         sprintf('%s rank %d', $type, $rank));
+                                            sprintf('%s rank %d', $type, $rank));
 
-                        $message = sprintf('Updated %s for testcase %d with file %s (%s)', $type, $rank,
-                                           $file->getClientOriginalName(), Utils::printsize($file->getSize()));
+                        $message = sprintf('Updated %s for testcase %d with file %s (%s)',
+                                           $type, $rank,
+                                           $file->getClientOriginalName(),
+                                           Utils::printsize($file->getSize()));
 
                         if ($type == 'output' && $file->getSize() > $outputLimit * 1024) {
-                            $message .= sprintf('<br><b>Warning: file size exceeds <code>output_limit</code> of %s kB. This will always result in wrong answers!</b>',
-                                                $outputLimit);
+                            $message .= sprintf(
+                                '<br><b>Warning: file size exceeds <code>output_limit</code> ' .
+                                'of %s kB. This will always result in wrong answers!</b>',
+                                $outputLimit
+                            );
                         }
 
                         $messages[] = $message;
@@ -656,11 +677,16 @@ class ProblemController extends BaseController
             $allOk = true;
             foreach (['input', 'output'] as $type) {
                 if (!$file = $request->files->get('add_' . $type)) {
-                    $messages[] = sprintf('Warning: new %s file was not selected, not adding new testcase',
-                                          $type);
+                    $messages[] = sprintf(
+                        'Warning: new %s file was not selected, not adding new testcase',
+                        $type
+                    );
                     $allOk      = false;
                 } elseif (!$file->isValid()) {
-                    $this->addFlash('danger', sprintf('File upload error new %s: %s. No changes made.', $type, $file->getErrorMessage()));
+                    $this->addFlash('danger', sprintf(
+                        'File upload error new %s: %s. No changes made.',
+                        $type, $file->getErrorMessage()
+                    ));
                     return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
                 }
             }
@@ -681,11 +707,17 @@ class ProblemController extends BaseController
                     $md5Method     = sprintf('setMd5sum%s', ucfirst($type));
                     $newTestcaseContent->{$contentMethod}($content);
                     $newTestcase->{$md5Method}(md5($content));
+                    if ($type == 'input') {
+                        $newTestcase->setOrigInputFilename(basename($file->getClientOriginalName(), '.in'));
+                    }
                 }
 
                 if ($imageFile = $request->files->get('add_image')) {
                     if (!$imageFile->isValid()) {
-                        $this->addFlash('danger', sprintf('File upload error new image: %s', $imageFile->getErrorMessage()));
+                        $this->addFlash('danger', sprintf(
+                            'File upload error new image: %s',
+                            $imageFile->getErrorMessage()
+                        ));
                         return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
                     }
                     $content   = file_get_contents($imageFile->getRealPath());
@@ -713,17 +745,26 @@ class ProblemController extends BaseController
 
                 $inFile  = $request->files->get('add_input');
                 $outFile = $request->files->get('add_output');
-                $message = sprintf('Added new testcase %d from files %s (%s) and %s (%s)', $maxrank,
-                                   $inFile->getClientOriginalName(), Utils::printsize($inFile->getSize()),
-                                   $outFile->getClientOriginalName(), Utils::printsize($outFile->getSize()));
+                $message = sprintf(
+                    'Added new testcase %d from files %s (%s) and %s (%s)', $maxrank,
+                    $inFile->getClientOriginalName(),  Utils::printsize($inFile->getSize()),
+                    $outFile->getClientOriginalName(), Utils::printsize($outFile->getSize())
+                );
+                $haswarnings = false;
 
-                if ($newTestcaseContent->getOutput() > $outputLimit * 1024) {
-                    $message .= sprintf('<br><b>Warning: file size exceeds <code>output_limit</code> of %s kB. This will always result in wrong answers!</b>',
-                                        $outputLimit);
+                if (strlen($newTestcaseContent->getOutput()) > $outputLimit * 1024) {
+                    $message .= sprintf(
+                        '<br><b>Warning: file size exceeds <code>output_limit</code> ' .
+                        'of %s kB. This will always result in wrong answers!</b>',
+                        $outputLimit
+                    );
+                    $haswarnings = true;
                 }
 
-                if (empty($newTestcaseContent->getInput()) || empty($newTestcaseContent->getOutput())) {
+                if (empty($newTestcaseContent->getInput()) ||
+                    empty($newTestcaseContent->getOutput())) {
                     $message .= '<br /><b>Warning: empty testcase file(s)!</b>';
+                    $haswarnings = true;
                 }
 
                 $messages[] = $message;
@@ -736,7 +777,7 @@ class ProblemController extends BaseController
                         return sprintf('<li>%s</li>', $message);
                     }, $messages)) . '</ul>';
 
-                $this->addFlash('info', $message);
+                $this->addFlash($haswarnings ? 'warning' : 'info', $message);
             }
             return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
         }
@@ -931,8 +972,9 @@ class ProblemController extends BaseController
             try {
                 $zip        = $this->dj->openZipFile($archive->getRealPath());
                 $clientName = $archive->getClientOriginalName();
-                if ($this->importProblemService->importZippedProblem($zip, $clientName, $problem,
-                                                                     $contest, $messages)) {
+                if ($this->importProblemService->importZippedProblem(
+                    $zip, $clientName, $problem, $contest, $messages
+                )) {
                     $this->dj->auditlog('problem', $problem->getProbid(), 'upload zip', $clientName);
                 } else {
                     $message = '<ul>' . implode('', array_map(function (string $message) {
@@ -1006,8 +1048,10 @@ class ProblemController extends BaseController
             $this->em->persist($problem);
             $this->saveEntity($this->em, $this->eventLogService, $this->dj, $problem,
                               $problem->getProbid(), true);
-            return $this->redirect($this->generateUrl('jury_problem',
-                                                      ['probId' => $problem->getProbid()]));
+            return $this->redirect($this->generateUrl(
+                'jury_problem',
+                ['probId' => $problem->getProbid()]
+            ));
         }
 
         return $this->render('jury/problem_add.html.twig', [
@@ -1038,7 +1082,8 @@ class ProblemController extends BaseController
             }
 
             if (!empty($testcase->getImageType())) {
-                $zip->addFromString($filename . '.' . $testcase->getImageType(), $testcase->getContent()->getImage());
+                $zip->addFromString($filename . '.' . $testcase->getImageType(),
+                                    $testcase->getContent()->getImage());
             }
         }
     }

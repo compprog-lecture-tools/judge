@@ -18,6 +18,7 @@ use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ScoreboardService;
 use App\Service\SubmissionService;
+use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
 use Doctrine\ORM\Query\Expr\Join;
@@ -124,8 +125,8 @@ class SubmissionController extends BaseController
         $limit = $viewTypes[$view] == 'newest' ? 50 : 0;
 
         /** @var Submission[] $submissions */
-        list($submissions, $submissionCounts) = $this->submissionService->getSubmissionList($contests, $restrictions,
-                                                                                            $limit);
+        list($submissions, $submissionCounts) =
+            $this->submissionService->getSubmissionList($contests, $restrictions, $limit);
 
         // Load preselected filters
         $filters          = $this->dj->jsonDecode((string)$this->dj->getCookie('domjudge_submissionsfilter') ?: '[]');
@@ -183,6 +184,20 @@ class SubmissionController extends BaseController
         }
 
         return $this->render('jury/submissions.html.twig', $data, $response);
+    }
+
+    private function parseMetadata($raw_metadata) {
+        // TODO: reduce duplication with judgedaemon code
+        $contents = explode("\n", $raw_metadata);
+        $res = [];
+        foreach($contents as $line) {
+            if (strpos($line, ":") !== false) {
+                list($key, $value) = explode(":", $line, 2);
+                $res[$key] = trim($value);
+            }
+        }
+
+        return $res;
     }
 
     /**
@@ -425,8 +440,19 @@ class SubmissionController extends BaseController
                 ->getResult();
 
             foreach ($runResults as $runResult) {
+                $firstJudgingRun = $runResult[0]->getFirstJudgingRun();
                 $runs[] = $runResult[0];
                 unset($runResult[0]);
+                if (empty($runResult['metadata'])) {
+                    $runResult['cpu_time'] = $firstJudgingRun === NULL ? 'n/a' : $firstJudgingRun->getRuntime();
+                } else {
+                    $metadata = $this->parseMetadata($runResult['metadata']);
+                    $runResult['cpu_time'] = $metadata['cpu-time'];
+                    $runResult['wall_time'] = $metadata['wall-time'];
+                    $runResult['memory'] = Utils::printsize((int)$metadata['memory-bytes'], 2);
+                    $runResult['exitcode'] = $metadata['exitcode'];
+                    $runResult['signal'] = isset($metadata['signal']) ? $metadata['signal'] : -1;
+                }
                 $runResult['terminated'] = preg_match('/timelimit exceeded.*hard (wall|cpu) time/',
                                                       (string)$runResult['output_system']);
                 $runsOutput[]            = $runResult;
@@ -617,8 +643,10 @@ class SubmissionController extends BaseController
     {
         if (!$this->dj->getUser()->getTeam() || !$this->dj->checkrole('team')) {
             $this->addFlash('danger', 'You cannot re-submit code without being a team.');
-            return $this->redirectToLocalReferrer($this->router, $request, $this->generateUrl('jury_submission',
-                                                                                              ['submitId' => $submission->getSubmitid()]));
+            return $this->redirectToLocalReferrer($this->router, $request, $this->generateUrl(
+                'jury_submission',
+                ['submitId' => $submission->getSubmitid()]
+            ));
         }
 
         /** @var SubmissionFile[] $files */
@@ -812,8 +840,24 @@ class SubmissionController extends BaseController
             $this->em->clear();
             /** @var Judging $judging */
             $judging = $this->em->getRepository(Judging::class)->find($judgingId);
-            $scoreboardService->calculateScoreRow($judging->getContest(), $judging->getSubmission()->getTeam(),
-                                                  $judging->getSubmission()->getProblem());
+            // We need to update the score for all teams for this problem, since the first to solve might now have changed
+            $teamsQueryBuilder = $this->em->createQueryBuilder()
+                                     ->from(Team::class, 't')
+                                     ->select('t')
+                                     ->orderBy('t.teamid');
+            if (!$judging->getContest()->isOpenToAllTeams()) {
+                $teamsQueryBuilder
+                    ->leftJoin('t.contests', 'c')
+                    ->join('t.category', 'cat')
+                    ->leftJoin('cat.contests', 'cc')
+                    ->andWhere('c.cid = :cid OR cc.cid = :cid')
+                    ->setParameter(':cid', $judging->getContest()->getCid());
+            }
+            /** @var Team[] $teams */
+            $teams = $teamsQueryBuilder->getQuery()->getResult();
+            foreach ($teams as $team) {
+                $scoreboardService->calculateScoreRow($judging->getContest(), $team, $judging->getSubmission()->getProblem());
+            }
             $balloonService->updateBalloons($judging->getContest(), $judging->getSubmission(), $judging);
         }
 

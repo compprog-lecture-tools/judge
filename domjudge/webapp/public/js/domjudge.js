@@ -128,8 +128,7 @@ function togglelastruns()
 // start (and end?).
 function updateClock()
 {
-	var curtime = initial+offset;
-	date.setTime(curtime*1000);
+	var curtime = Math.round((new Date().getTime() - clientOffset) / 1000);
 
 	var fmt = "";
 	if ( timeleftelt.innerHTML=='start delayed' || timeleft.innerHTML == 'no contest' ) { // FIXME
@@ -166,7 +165,6 @@ function updateClock()
 	}
 
 	timeleftelt.innerHTML = what + fmt;
-	offset++;
 }
 
 function setCookie(name, value)
@@ -586,12 +584,12 @@ function updateMenuInternalErrors(data)
     if ( num == 0 ) {
         $("#num-alerts-internalerrors").hide();
         $("#num-alerts-internalerrors-sub").html("");
-        $("#menu_internal_error").removeClass("text-danger").addClass("disabled");
+        $("#menu_internal_error").removeClass("text-danger").addClass("dropdown-disabled");
     } else {
         $("#num-alerts-internalerrors").html(num);
         $("#num-alerts-internalerrors").show();
         $("#num-alerts-internalerrors-sub").html(num + " new");
-        $("#menu_internal_error").addClass("text-danger").removeClass("disabled");
+        $("#menu_internal_error").addClass("text-danger").removeClass("dropdown-disabled");
         for(var i=0; i<num; i++) {
             sendNotification('Judgehost internal error occurred.',
                 {'tag': 'ie_'+data[i].errorid,

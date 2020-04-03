@@ -23,7 +23,7 @@ use Symfony\Component\Validator\Constraints as Assert;
  *         @ORM\Index(name="special_compare", columns={"special_compare"})
  *     })
  * @ORM\HasLifecycleCallbacks()
- * @UniqueEntity("externalid")
+ * @UniqueEntity("externalid", message="A problem with the same `externalid` already exists - is this a duplicate?")
  */
 class Problem extends BaseApiEntity
 {
@@ -190,10 +190,18 @@ class Problem extends BaseApiEntity
     private $testcases;
 
     /**
-     * @ORM\OneToMany(targetEntity="ScoreCache", mappedBy="problem")
-     * @Serializer\Exclude()
+     * Set probid
+     *
+     * @param integer $probId
+     *
+     * @return Problem
      */
-    private $scorecache;
+    public function setProbid($probid)
+    {
+        $this->probid = $probid;
+
+        return $this;
+    }
 
     /**
      * Get probid
@@ -585,7 +593,6 @@ class Problem extends BaseApiEntity
         $this->submissions = new ArrayCollection();
         $this->clarifications = new ArrayCollection();
         $this->contest_problems = new ArrayCollection();
-        $this->scorecache = new ArrayCollection();
     }
 
     /**
@@ -723,40 +730,6 @@ class Problem extends BaseApiEntity
     public function getClarifications()
     {
         return $this->clarifications;
-    }
-
-    /**
-     * Add scorecache
-     *
-     * @param \App\Entity\ScoreCache $scorecache
-     *
-     * @return Problem
-     */
-    public function addScorecache(\App\Entity\ScoreCache $scorecache)
-    {
-        $this->scorecache[] = $scorecache;
-
-        return $this;
-    }
-
-    /**
-     * Remove scorecache
-     *
-     * @param \App\Entity\ScoreCache $scorecache
-     */
-    public function removeScorecache(\App\Entity\ScoreCache $scorecache)
-    {
-        $this->scorecache->removeElement($scorecache);
-    }
-
-    /**
-     * Get scorecache
-     *
-     * @return \Doctrine\Common\Collections\Collection
-     */
-    public function getScorecache()
-    {
-        return $this->scorecache;
     }
 
     /**

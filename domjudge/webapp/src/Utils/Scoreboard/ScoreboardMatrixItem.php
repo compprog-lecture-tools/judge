@@ -49,8 +49,15 @@ class ScoreboardMatrixItem
      * @param int $penaltyTime
      * @param float $runtime
      */
-    public function __construct(bool $isCorrect, bool $isFirst, int $numberOfSubmissions, int $numberOfPendingSubmissions, $time, int $penaltyTime, float $runtime)
-    {
+    public function __construct(
+        bool $isCorrect,
+        bool $isFirst,
+        int $numberOfSubmissions,
+        int $numberOfPendingSubmissions,
+        $time,
+        int $penaltyTime,
+        float $runtime
+    ) {
         $this->isCorrect                  = $isCorrect;
         $this->isFirst                    = $isFirst;
         $this->numberOfSubmissions        = $numberOfSubmissions;

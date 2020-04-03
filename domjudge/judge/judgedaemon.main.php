@@ -138,7 +138,9 @@ function request(string $url, string $verb = 'GET', string $data = '', bool $fai
                 "Check credentials in restapi.secret.";
         } else {
             $errstr = "Error while executing curl $verb to url " . $url .
-                ": http status code: " . $status . ", response: " . $response;
+                ": http status code: " . $status .
+                ", request size = " . strlen($data) .
+                ", response: " . $response;
         }
         if ($failonerror) {
             error($errstr);
@@ -302,10 +304,10 @@ function fetch_executable(
                 }
                 switch ($execlang) {
                 case 'c':
-                    $buildscript .= "gcc -Wall -O2 -std=gnu99 '$source' -o $execrunpath -lm\n";
+                    $buildscript .= "gcc -Wall -O2 -std=gnu11 '$source' -o $execrunpath -lm\n";
                     break;
                 case 'cpp':
-                    $buildscript .= "g++ -Wall -O2 -std=c++11 '$source' -o $execrunpath\n";
+                    $buildscript .= "g++ -Wall -O2 -std=gnu++17 '$source' -o $execrunpath\n";
                     break;
                 case 'java':
                     $source = basename($source, ".java");
@@ -419,6 +421,11 @@ if (isset($options['V'])) {
 }
 if (isset($options['h'])) {
     usage();
+}
+
+if ( posix_getuid()==0 || posix_geteuid()==0 ) {
+    echo "This program should not be run as root.\n";
+    exit(1);
 }
 
 $myhost = trim(`hostname | cut -d . -f 1`);

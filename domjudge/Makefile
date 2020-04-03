@@ -100,10 +100,6 @@ clean:             SUBDIRS=etc doc lib sql     judge submit        tests misc-to
 distclean:         SUBDIRS=etc doc lib sql     judge submit import tests misc-tools webapp
 maintainer-clean:  SUBDIRS=etc doc lib sql     judge submit import tests misc-tools webapp
 
-# Dump the environment into a .php file for improved speed
-domserver-l:
-	composer $(subst 1,-q,$(QUIET)) symfony:dump-env prod
-
 domserver-create-dirs:
 	$(INSTALL_DIR) $(addprefix $(DESTDIR),$(domserver_dirs))
 
@@ -138,11 +134,7 @@ endif
 	-$(INSTALL_USER) -m 0600 -t $(DESTDIR)$(domserver_etcdir) \
 		etc/initial_admin_password.secret
 	-$(INSTALL_WEBSITE) -m 0640 -t $(DESTDIR)$(domserver_etcdir) \
-		etc/dbpasswords.secret
-	-$(INSTALL_WEBSITE) -m 0640 -t $(DESTDIR)$(domserver_webappdir) \
-		webapp/.env.local
-	-$(INSTALL_WEBSITE) -m 0640 -t $(DESTDIR)$(domserver_webappdir) \
-		webapp/.env.local.php
+		etc/dbpasswords.secret etc/symfony_app.secret
 	@echo ""
 	@echo "Domserver install complete. Admin web interface password can be found in:"
 	@echo "$(DESTDIR)$(domserver_etcdir)/initial_admin_password.secret"
@@ -187,7 +179,7 @@ paths.mk:
 
 # Configure for running in source tree, not meant for normal use:
 MAINT_CXFLAGS=-g -O1 -Wall -fstack-protector -D_FORTIFY_SOURCE=2 \
-              -fPIE -Wformat -Wformat-security -ansi -pedantic
+              -fPIE -Wformat -Wformat-security -pedantic
 MAINT_LDFLAGS=-fPIE -pie -Wl,-z,relro -Wl,-z,now
 maintainer-conf: dist composer-dependencies-dev
 	./configure $(subst 1,-q,$(QUIET)) --prefix=$(CURDIR) \
@@ -203,15 +195,21 @@ maintainer-conf: dist composer-dependencies-dev
 	            --with-judgehost_judgedir=$(CURDIR)/output/judgings \
 	            --with-domserver_submitdir=$(CURDIR)/output/submissions \
 	            --with-baseurl='http://localhost/domjudge/' \
-	            CFLAGS='$(MAINT_CXFLAGS)' \
-	            CXXFLAGS='$(MAINT_CXFLAGS)' \
+	            CFLAGS='$(MAINT_CXFLAGS) -std=c11' \
+	            CXXFLAGS='$(MAINT_CXFLAGS) -std=c++11' \
 	            LDFLAGS='$(MAINT_LDFLAGS)' \
 	            $(CONFIGURE_FLAGS)
+
+# Run Symfony in dev mode (for maintainer-mode):
+webapp/.env.local:
+	echo "# This file was automatically created by 'make maintainer-install' to run" >> $@
+	echo "# the DOMjudge Symfony application in developer mode. Adjust as needed." >> $@
+	echo "APP_ENV=dev" >> $@
 
 # Install the system in place: don't really copy stuff, but create
 # symlinks where necessary to let it work from the source tree.
 # This stuff is a hack!
-maintainer-install: build domserver-create-dirs judgehost-create-dirs
+maintainer-install: build domserver-create-dirs judgehost-create-dirs webapp/.env.local
 # Replace libjudgedir with symlink to prevent lots of symlinks:
 	-rmdir $(judgehost_libjudgedir)
 	-rm -f $(judgehost_libjudgedir)
@@ -227,10 +225,6 @@ maintainer-install: build domserver-create-dirs judgehost-create-dirs
 # because judgehost-create-dirs sets wrong permissions:
 	mkdir -p $(domserver_tmpdir)
 	chmod a+rwx $(domserver_tmpdir) $(domserver_submitdir)
-# Run Symfony in dev mode:
-	sed -i 's/^#APP_ENV=dev/APP_ENV=dev/' $(CURDIR)/webapp/.env.local
-# Remove cached environment file as we don't want this in production
-	rm $(CURDIR)/webapp/.env.local.php
 # Make sure we're running from a clean state:
 	composer auto-scripts
 	@echo ""

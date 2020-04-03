@@ -30,6 +30,7 @@ RUN apt-get update \
     supervisor apache2-utils lsb-release \
     libcurl4-gnutls-dev libjsoncpp-dev libmagic-dev python python-pip \
     enscript lpr ca-certificates less vim \
+    python3-sphinx python3-sphinx-rtd-theme \
     && pip install Pygments \
     && rm -rf /var/lib/apt/lists/*
 

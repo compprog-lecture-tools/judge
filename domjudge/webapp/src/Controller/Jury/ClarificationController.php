@@ -264,24 +264,27 @@ class ClarificationController extends AbstractController
 
         $categories = $this->dj->dbconfig_get('clar_categories');
         $contests = $this->dj->getCurrentContests();
+
+        /** @var ContestProblem[] $contestproblems */
+        $contestproblems = $this->em->createQueryBuilder()
+            ->from(ContestProblem::class, 'cp')
+            ->select('cp, partial p.{probid,externalid,name}')
+            ->innerJoin('cp.problem', 'p')
+            ->where('cp.contest IN (:contests)')
+            ->setParameter(':contests', $contests)
+            ->orderBy('cp.shortname')
+            ->getQuery()->getResult();
+
         foreach($contests as $cid => $cdata) {
             $cshort = $cdata->getShortName();
             foreach($categories as $name => $desc) {
                 $subject_options[$cshort]["$cid-$name"] = "$cshort - $desc";
             }
 
-            $queryBuilder = $this->em->createQueryBuilder()
-                ->from(ContestProblem::class, 'cp')
-                ->select('cp, p')
-                ->innerJoin('cp.problem', 'p')
-                ->where('cp.contest = :contest')
-                ->setParameter(':contest', $cdata)
-                ->orderBy('cp.shortname');
-
-            /** @var ContestProblem[] $contestproblems */
-            $contestproblems = $queryBuilder->getQuery()->getResult();
             foreach($contestproblems as $cp) {
-                $subject_options[$cshort]["$cid-" . $cp->getProbid() ] = $cshort . ' - ' .$cp->getShortname() . ': ' . $cp->getProblem()->getName();
+                if ( $cp->getCid()!=$cid ) continue;
+                $subject_options[$cshort]["$cid-" . $cp->getProbid()] =
+                    $cshort . ' - ' .$cp->getShortname() . ': ' . $cp->getProblem()->getName();
             }
         }
 
@@ -436,7 +439,9 @@ class ClarificationController extends AbstractController
         if (empty($sendto)) {
             $sendto = null;
         } elseif ($sendto === 'domjudge-must-select') {
-            throw new InvalidArgumentException('You must select somewhere to send the clarification to.');
+            $message = 'You must select somewhere to send the clarification to.';
+            $this->addFlash('danger', $message);
+            return $this->redirectToRoute('jury_clarification_send');
         } else {
             $clarification->setRecipientId($sendto);
             $team = $this->em->getReference(Team::class, $sendto);
