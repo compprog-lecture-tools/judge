@@ -122,7 +122,7 @@ class ImportExportService
         return $data;
     }
 
-    public function importContestYaml($data, string &$message = null): bool
+    public function importContestYaml($data, string &$message = null, string &$cid = null): bool
     {
         if (empty($data)) {
             $message = 'Error parsing YAML file.';
@@ -149,7 +149,7 @@ class ImportExportService
                            ))
             ->setExternalid($contest->getShortname())
             ->setStarttimeString(date_format($starttime, 'Y-m-d H:i:s e'))
-            ->setActivatetimeString('-1:00')
+            ->setActivatetimeString('-24:00')
             ->setEndtimeString(sprintf('+%s', $data['duration']));
 
         /** @var string|null $freezeDuration */
@@ -232,6 +232,8 @@ class ImportExportService
                 $this->em->persist($contestProblem);
             }
         }
+
+        $cid = $contest->getApiId($this->eventLogService);
 
         $this->em->flush();
         return true;
@@ -672,8 +674,8 @@ class ImportExportService
                     $this->em->persist($teamAffiliation);
                     $this->em->flush();
                     $createdAffiliations[] = $teamAffiliation->getAffilid();
-                    $this->dj->auditlog('team_affiliation', $teamAffiliation->getAffilid(), 'added',
-                                                     'imported from tsv');
+                    $this->dj->auditlog('team_affiliation', $teamAffiliation->getAffilid(),
+                                        'added', 'imported from tsv');
                 }
             }
             $teamItem['team']['affiliation'] = $teamAffiliation;
@@ -684,11 +686,11 @@ class ImportExportService
                 if (!$teamCategory) {
                     $teamCategory = new TeamCategory();
                     $teamCategory
-                        ->setCategoryid($teamItem['categoryid'])
-                        ->setName($teamItem['categoryid'] . ' - auto-create during import');
+                        ->setCategoryid((int)$teamItem['team']['categoryid'])
+                        ->setName($teamItem['team']['categoryid'] . ' - auto-create during import');
                     $this->em->persist($teamCategory);
-                    $this->dj->auditlog('team_category', $teamCategory->getCategoryid(), 'added',
-                                                     'imported from tsv');
+                    $this->dj->auditlog('team_category', $teamCategory->getCategoryid(),
+                                        'added', 'imported from tsv');
                 }
             }
             $teamItem['team']['category'] = $teamCategory;
@@ -723,7 +725,8 @@ class ImportExportService
 
         if ($contest = $this->dj->getCurrentContest()) {
             if (!empty($createdAffiliations)) {
-                $this->eventLogService->log('team_affiliation', $createdAffiliations, 'create', $contest->getCid());
+                $this->eventLogService->log('team_affiliation', $createdAffiliations,
+                                            'create', $contest->getCid());
             }
             if (!empty($createdTeams)) {
                 $this->eventLogService->log('team', $createdTeams, 'create', $contest->getCid());
@@ -804,7 +807,8 @@ class ImportExportService
                     return -1;
             }
 
-            // accounts.tsv contains data pertaining to users, their roles and teams. Hence return data for both tables.
+            // accounts.tsv contains data pertaining to users, their roles and
+            // teams. Hence return data for both tables.
 
             // We may do more integrity/format checking of the data here.
             $accountData[] = [
@@ -823,9 +827,9 @@ class ImportExportService
         foreach ($accountData as $accountItem) {
             if (!empty($accountItem['team'])) {
                 $team = $this->em->getRepository(Team::class)->findOneBy([
-                                                                                        'name' => $accountItem['team']['name'],
-                                                                                        'category' => $accountItem['team']['category']
-                                                                                    ]);
+                    'name' => $accountItem['team']['name'],
+                    'category' => $accountItem['team']['category']
+                ]);
                 if ($team === null) {
                     $team = new Team();
                     $team
@@ -842,7 +846,7 @@ class ImportExportService
                     'action' => $action,
                 );
                 $this->dj->auditlog('team', $team->getTeamid(), 'replaced',
-                                                 'imported from tsv, autocreated for judge');
+                                    'imported from tsv, autocreated for judge');
                 $accountItem['user']['team'] = $team;
             }
 

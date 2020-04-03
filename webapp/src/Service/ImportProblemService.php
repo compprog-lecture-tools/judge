@@ -96,9 +96,10 @@ class ImportProblemService
         // This might take a while
         ini_set('max_execution_time', '300');
 
-        $propertiesFile = 'domjudge-problem.ini';
-        $yamlFile       = 'problem.yaml';
-        $tleFile        = '.timelimit';
+        $propertiesFile  = 'domjudge-problem.ini';
+        $yamlFile        = 'problem.yaml';
+        $tleFile         = '.timelimit';
+        $submission_file = 'submissions.json';
         $problemIsNew   = $problem === null;
 
         $iniKeysProblem        = ['name', 'timelimit', 'special_run', 'special_compare'];
@@ -252,12 +253,14 @@ class ImportProblemService
                 }
 
                 if (isset($yamlData['validation'])
-                    && ($yamlData['validation'] == 'custom' || $yamlData['validation'] == 'custom interactive')) {
+                    && ($yamlData['validation'] == 'custom' ||
+                        $yamlData['validation'] == 'custom interactive')) {
                     // search for validator
                     $validatorFiles = [];
                     for ($j = 0; $j < $zip->numFiles; $j++) {
                         $filename = $zip->getNameIndex($j);
-                        if (Utils::startsWith($filename, 'output_validators/') && !Utils::endsWith($filename, '/')) {
+                        if (Utils::startsWith($filename, 'output_validators/') &&
+                            !Utils::endsWith($filename, '/')) {
                             $validatorFiles[] = $filename;
                         }
                     }
@@ -270,15 +273,16 @@ class ImportProblemService
                         foreach ($validatorFiles as $validatorFile) {
                             if (!Utils::startsWith($validatorFile, $validatorDir)) {
                                 $sameDir    = false;
-                                $messages[] = sprintf('%s does not start with %s.', $validatorFile,
-                                                      $validatorDir);
+                                $messages[] = sprintf('%s does not start with %s.',
+                                                      $validatorFile, $validatorDir);
                                 break;
                             }
                         }
                         if (!$sameDir) {
                             $messages[] = 'Found multiple custom output validators.';
                         } else {
-                            $tmpzipfiledir = exec("mktemp -d --tmpdir=" . $this->dj->getDomjudgeTmpDir(),
+                            $tmpzipfiledir = exec("mktemp -d --tmpdir=" .
+                                                  $this->dj->getDomjudgeTmpDir(),
                                                   $dontcare, $retval);
                             if ($retval != 0) {
                                 throw new ServiceUnavailableHttpException(null, 'failed to create temporary directory');
@@ -295,7 +299,8 @@ class ImportProblemService
                                 }
                             }
 
-                            exec("zip -r -j '$tmpzipfiledir/outputvalidator.zip' '$tmpzipfiledir'", $dontcare, $retval);
+                            exec("zip -r -j '$tmpzipfiledir/outputvalidator.zip' '$tmpzipfiledir'",
+                                 $dontcare, $retval);
                             if ($retval != 0) {
                                 throw new ServiceUnavailableHttpException(null,
                                     'failed to create zip file for output validator.');
@@ -389,11 +394,13 @@ class ImportProblemService
             $dataFiles = [];
             for ($j = 0; $j < $zip->numFiles; $j++) {
                 $filename = $zip->getNameIndex($j);
-                if (Utils::startsWith($filename, sprintf('data/%s/', $type)) && Utils::endsWith($filename, '.in')) {
-                    $basename = basename($filename, ".in");
-                    $fileout  = sprintf('data/%s/%s.ans', $type, $basename);
+                if (Utils::startsWith($filename, sprintf('data/%s/', $type)) &&
+                    Utils::endsWith($filename, '.in')) {
+                    $fileout  = preg_replace("/\.in$/", ".ans", $filename);
                     if ($zip->locateName($fileout) !== false) {
-                        $dataFiles[] = $basename;
+                        $basename = basename($filename, ".in");
+                        $dirname = dirname($filename);
+                        $dataFiles[] = preg_replace("|^data/$type/|", "", sprintf('%s/%s', $dirname, $basename));
                     }
                 }
             }
@@ -402,10 +409,6 @@ class ImportProblemService
             foreach ($dataFiles as $dataFile) {
                 $testIn      = $zip->getFromName(sprintf('data/%s/%s.in', $type, $dataFile));
                 $testOut     = $zip->getFromName(sprintf('data/%s/%s.ans', $type, $dataFile));
-                $description = $dataFile;
-                if (($descriptionFile = $zip->getFromName(sprintf('data/%s/%s.desc', $type, $dataFile))) !== false) {
-                    $description = $descriptionFile;
-                }
                 $imageFile = $imageType = $imageThumb = false;
                 foreach (['png', 'jpg', 'jpeg', 'gif'] as $imgExtension) {
                     $imageFileName = sprintf('data/%s/%s.%s', $type, $dataFile, $imgExtension);
@@ -415,14 +418,16 @@ class ImportProblemService
                             $messages[] = sprintf("reading '%s': %s", $imageFileName, $errormsg);
                             $imageFile  = false;
                         } elseif ($imageType !== ($imgExtension == 'jpg' ? 'jpeg' : $imgExtension)) {
-                            $messages[] = sprintf("extension of '%s' does not match type '%s'", $imageFileName,
-                                                  $imageType);
+                            $messages[] = sprintf("extension of '%s' does not match type '%s'",
+                                                  $imageFileName, $imageType);
                             $imageFile  = false;
                         } else {
                             $thumbnailSize = $this->dj->dbconfig_get('thumbnail_size', 128);
-                            $imageThumb    = Utils::getImageThumb($imageFile, $thumbnailSize,
-                                                                  $this->dj->getDomjudgeTmpDir(),
-                                                                  $errormsg);
+                            $imageThumb    = Utils::getImageThumb(
+                                $imageFile, $thumbnailSize,
+                                $this->dj->getDomjudgeTmpDir(),
+                                $errormsg
+                            );
                             if ($imageThumb === false) {
                                 $imageThumb = null;
                                 $messages[] = sprintf("reading '%s': %s", $imageFileName, $errormsg);
@@ -444,12 +449,12 @@ class ImportProblemService
                         ->andWhere('t.md5sum_input = :inputmd5')
                         ->andWhere('t.md5sum_output = :outputmd5')
                         ->andWhere('t.sample = :sample')
-                        ->andWhere('t.description = :description')
+                        ->andWhere('t.orig_input_filename = :orig_input_filename')
                         ->andWhere('t.problem = :problem')
                         ->setParameter(':inputmd5', $md5in)
                         ->setParameter(':outputmd5', $md5out)
                         ->setParameter(':sample', $type === 'sample')
-                        ->setParameter(':description', $description)
+                        ->setParameter(':orig_input_filename', $dataFile)
                         ->setParameter(':problem', $problem)
                         ->getQuery()
                         ->getOneOrNullResult();
@@ -469,10 +474,13 @@ class ImportProblemService
                     ->setSample($type === 'sample')
                     ->setMd5sumInput($md5in)
                     ->setMd5sumOutput($md5out)
-                    ->setDescription($description);
+                    ->setOrigInputFilename($dataFile);
                 $testcaseContent
                     ->setInput($testIn)
                     ->setOutput($testOut);
+                if (($descriptionFile = $zip->getFromName(sprintf('data/%s/%s.desc', $type, $dataFile))) !== false) {
+                    $testcase->setDescription($descriptionFile);
+                }
                 if ($imageFile !== false) {
                     $testcase->setImageType($imageType);
                     $testcaseContent
@@ -522,6 +530,11 @@ class ImportProblemService
                 ->andWhere('l.allowSubmit = true')
                 ->getQuery()
                 ->getResult();
+
+            // Read submission details from optional file.
+            $submission_file_string = $zip->getFromName($submission_file);
+            $submission_details = $submission_file_string===FALSE ? array() :
+                $this->dj->jsonDecode($submission_file_string);
 
             $numJurySolutions = 0;
             for ($j = 0; $j < $zip->numFiles; $j++) {
@@ -573,6 +586,9 @@ class ImportProblemService
                         }
                     }
                 }
+                if (isset($submission_details[$path]['langid'])) {
+                    $languageToUse = $submission_details[$path]['langid'];
+                }
 
                 $tmpDir = $this->dj->getDomjudgeTmpDir();
 
@@ -595,9 +611,10 @@ class ImportProblemService
                                 sprintf('Could not create temporary file in directory %s', $tmpDir));
                         }
                         if (file_put_contents($tempFileName, $source) === false) {
-                            throw new ServiceUnavailableHttpException(null,
-                                                                      sprintf("Could not write to temporary file '%s'.",
-                                                                              $tempFileName));
+                            throw new ServiceUnavailableHttpException(
+                                null,
+                                sprintf("Could not write to temporary file '%s'.", $tempFileName)
+                            );
                         }
                         $filesToSubmit[] = new UploadedFile($tempFileName, $files[$k], null, null, null, true);
                         $totalSize       += filesize($tempFileName);
@@ -611,20 +628,35 @@ class ImportProblemService
                     } elseif (!empty($expectedResult)) {
                         $results = [$expectedResult];
                     }
+                    $jury_team_id = $this->dj->getUser()->getTeamid();
+                    if (isset($submission_details[$path]['team'])) {
+                        $json_team = $this->em->getRepository(Team::class)
+                            ->findOneBy(['name' => $submission_details[$path]['team']]);
+                        if (isset($json_team)) {
+                            $json_team_id = $json_team->getTeamid();
+                            if (isset($json_team_id)) {
+                                $jury_team_id = $json_team_id;
+                            }
+                        }
+                    }
+                    $entry_point = '__auto__';
+                    if (isset($submission_details[$path]['entry_point'])) {
+                        $entry_point = $submission_details[$path]['entry_point'];
+                    }
                     if ($totalSize <= $this->dj->dbconfig_get('sourcesize_limit') * 1024) {
                         $contest        = $this->em->getRepository(Contest::class)->find(
                             $contest->getCid());
-                        $team           = $this->em->getRepository(Team::class)->find(
-                            $this->dj->getUser()->getTeamid());
+                        $team           = $this->em->getRepository(Team::class)->find($jury_team_id);
                         $contestProblem = $this->em->getRepository(ContestProblem::class)->find(
                             [
                                 'problem' => $problem,
                                 'contest' => $contest,
                             ]);
-                        $submission     = $this->submissionService->submitSolution($team, $contestProblem, $contest,
-                                                                                   $languageToUse, $filesToSubmit, null,
-                                                                                   '__auto__', null, null,
-                                                                                   $submissionMessage);
+                        $submission     = $this->submissionService->submitSolution(
+                            $team, $contestProblem, $contest, $languageToUse, $filesToSubmit,
+                            null, $entry_point, null, null, $submissionMessage
+                        );
+
                         if (!$submission) {
                             $messages[] = $submissionMessage;
                             return null;

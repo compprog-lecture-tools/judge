@@ -24,7 +24,7 @@ Usage: $0 [option]... <command>
 
 Commands:
   status           check database installation status
-  genpass          generate password file
+  genpass          generate DB,API,Symfony,admin password files
   create-db-users  create (empty) database and users
   install          create database, example contest and users if not existing
   bare-install     create database, setup defaults if not existing
@@ -261,19 +261,7 @@ status)
 	;;
 
 genpass)
-	if [ -f "$PASSWDFILE" ]; then
-		echo "Error: password file '$PASSWDFILE' already exists."
-		exit 1
-	fi
-	echo "Running '$ETCDIR/gendbpasswords'..."
-	$ETCDIR/gendbpasswords > "$PASSWDFILE"
-	echo "Password file '$PASSWDFILE' created."
-	echo "Running '$ETCDIR/genrestapicredentials'..."
-	$ETCDIR/genrestapicredentials > "$RESTPWFILE"
-	echo "Password file '$RESTPWFILE' created."
-	echo "Running '$ETCDIR/genadminpassword'..."
-	$ETCDIR/genadminpassword > "$ADMINPWFILE"
-	echo "Password file '$ADMINPWFILE' created."
+	$ETCDIR/gen_all_secrets
 	;;
 
 uninstall)
@@ -295,7 +283,9 @@ create-db-users)
 bare-install|install)
 	read_dbpasswords
 	create_db_users
+	export DB_FIRST_INSTALL=1
 	symfony_console doctrine:migrations:migrate -n
+	unset DB_FIRST_INSTALL
 	if [ "$1" = "install" ]; then
 		DBUSER=$domjudge_DBUSER PASSWD=$domjudge_PASSWD symfony_console domjudge:load-example-data
 	fi

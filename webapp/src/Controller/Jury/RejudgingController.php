@@ -415,8 +415,10 @@ class RejudgingController extends BaseController
                 if ($rejudgingService->finishRejudging($rejudging, $action, $progressReporter)) {
                     $timeEnd      = microtime(true);
                     $timeDiff     = sprintf('%.2f', $timeEnd - $timeStart);
-                    $rejudgingUrl = $this->generateUrl('jury_rejudging',
-                                                       ['rejudgingId' => $rejudging->getRejudgingid()]);
+                    $rejudgingUrl = $this->generateUrl(
+                        'jury_rejudging',
+                        ['rejudgingId' => $rejudging->getRejudgingid()]
+                    );
                     echo sprintf(
                         '<br/><br/><p>Rejudging <a href="%s">r%d</a> %s in %s seconds.</p>',
                         $rejudgingUrl, $rejudging->getRejudgingid(),
@@ -692,6 +694,12 @@ class RejudgingController extends BaseController
         foreach ($judgings as $judging) {
             $submission = $judging['submission'];
             if ($submission['rejudgingid'] !== null) {
+                $skipMessage = sprintf('Skipping submission <a href="%s">s%d</a> since it is already part of rejudging <a href="%s">r%d</a>.',
+                    $this->generateUrl('jury_submission', ['submitId' => $submission['submitid']]),
+                    $submission['submitid'],
+                    $this->generateUrl('jury_rejudging', ['rejudgingId' => $submission['rejudgingid']]),
+                    $submission['rejudgingid']);
+                $this->addFlash('danger', $skipMessage);
                 // Already associated rejudging
                 if ($singleJudging) {
                     // Clean up before throwing an error
@@ -699,11 +707,9 @@ class RejudgingController extends BaseController
                         $em->remove($rejudging);
                         $em->flush();
                     }
-                    $this->addFlash('danger', sprintf('Submission is already part of rejudging r%d',
-                                                      $submission['rejudgingid']));
                     return $this->redirectToLocalReferrer($this->router, $request, $this->generateUrl('jury_index'));
                 } else {
-                    // silently skip that submission
+                    // just skip that submission
                     continue;
                 }
             }
@@ -718,31 +724,33 @@ class RejudgingController extends BaseController
                 $em
             ) {
                 if (!$fullRejudge) {
-                    $em->getConnection()->executeUpdate('UPDATE judging SET valid = false WHERE judgingid = :judgingid',
-                                                        [
-                                                            ':judgingid' => $judging['judgingid'],
-                                                        ]);
+                    $em->getConnection()->executeUpdate(
+                        'UPDATE judging SET valid = false WHERE judgingid = :judgingid',
+                        [ ':judgingid' => $judging['judgingid'] ]
+                    );
                 }
 
-                $em->getConnection()->executeUpdate('UPDATE submission SET judgehost = null WHERE submitid = :submitid AND rejudgingid IS NULL',
-                                                    [
-                                                        ':submitid' => $submission['submitid'],
-                                                    ]);
+                $em->getConnection()->executeUpdate(
+                    'UPDATE submission SET judgehost = null WHERE submitid = :submitid AND rejudgingid IS NULL',
+                    [ ':submitid' => $submission['submitid'] ]
+                );
                 if ($rejudging) {
-                    $em->getConnection()->executeUpdate('UPDATE submission SET rejudgingid = :rejudgingid WHERE submitid = :submitid AND rejudgingid IS NULL',
-                                                        [
-                                                            ':rejudgingid' => $rejudging->getRejudgingid(),
-                                                            ':submitid' => $submission['submitid'],
-                                                        ]);
+                    $em->getConnection()->executeUpdate(
+                        'UPDATE submission SET rejudgingid = :rejudgingid WHERE submitid = :submitid AND rejudgingid IS NULL',
+                        [
+                            ':rejudgingid' => $rejudging->getRejudgingid(),
+                            ':submitid' => $submission['submitid'],
+                        ]
+                    );
                 }
 
                 if ($singleJudging) {
                     $teamid = $submission['teamid'];
                     if ($teamid) {
-                        $em->getConnection()->executeUpdate('UPDATE team SET judging_last_started = null WHERE teamid = :teamid',
-                                                            [
-                                                                ':teamid' => $teamid,
-                                                            ]);
+                        $em->getConnection()->executeUpdate(
+                            'UPDATE team SET judging_last_started = null WHERE teamid = :teamid',
+                            [ ':teamid' => $teamid ]
+                        );
                     }
                 }
 

@@ -167,30 +167,16 @@ class DOMJudgeService
                 ->leftJoin('tc.teams', 'tct')
                 ->andWhere('ct.teamid = :teamid OR tct.teamid = :teamid OR c.openToAllTeams = 1')
                 ->setParameter(':teamid', $onlyofteam);
-            // $contests = $DB->q("SELECT * FROM contest
-            //                     LEFT JOIN contestteam USING (cid)
-            //                     WHERE (contestteam.teamid = %i OR contest.openToAllTeams = 1)
-            //                     AND enabled = 1 ${extra}
-            //                     AND ( deactivatetime IS NULL OR
-            //                           deactivatetime > UNIX_TIMESTAMP() )
-            //                     ORDER BY activatetime", $onlyofteam);
         } elseif ($onlyofteam === -1) {
             $qb->andWhere('c.public = 1');
-            // $contests = $DB->q("SELECT * FROM contest
-            //                     WHERE enabled = 1 AND public = 1 ${extra}
-            //                     AND ( deactivatetime IS NULL OR
-            //                           deactivatetime > UNIX_TIMESTAMP() )
-            //                     ORDER BY activatetime");
         }
         $qb->andWhere('c.enabled = 1')
-            ->andWhere($qb->expr()->orX(
-                'c.deactivatetime is null',
-                $qb->expr()->gt('c.deactivatetime', $now)
-            ))
+            ->andWhere('c.deactivatetime IS NULL OR c.deactivatetime > :now')
+            ->setParameter(':now', $now)
             ->orderBy('c.activatetime');
 
         if (!$alsofuture) {
-            $qb->andWhere($qb->expr()->lte('c.activatetime', $now));
+            $qb->andWhere('c.activatetime <= :now');
         }
 
         $contests = $qb->getQuery()->getResult();
@@ -205,15 +191,17 @@ class DOMJudgeService
      */
     public function getCurrentContest($onlyofteam = null, bool $alsofuture = false)
     {
-        $selected_cid = $this->requestStack->getCurrentRequest()->cookies->get('domjudge_cid');
-        if ($selected_cid == -1) {
-            return null;
-        }
-
         $contests = $this->getCurrentContests($onlyofteam, $alsofuture);
-        foreach ($contests as $contest) {
-            if ($contest->getCid() == $selected_cid) {
-                return $contest;
+        if ($this->requestStack->getCurrentRequest()) {
+            $selected_cid = $this->requestStack->getCurrentRequest()->cookies->get('domjudge_cid');
+            if ($selected_cid == -1) {
+                return null;
+            }
+
+            foreach ($contests as $contest) {
+                if ($contest->getCid() == $selected_cid) {
+                    return $contest;
+                }
             }
         }
         if (count($contests) > 0) {
@@ -303,6 +291,9 @@ class DOMJudgeService
      */
     public function getCookie(string $cookieName)
     {
+        if (!$this->requestStack->getCurrentRequest()) {
+            return null;
+        }
         if (!$this->requestStack->getCurrentRequest()->cookies) {
             return null;
         }
@@ -591,8 +582,10 @@ class DOMJudgeService
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
-            $this->logger->warning(sprintf("executing internal %s request to url %s: http status code: %d, response: %s",
-                                           $method, $url, $status, $response));
+            $this->logger->warning(
+                "executing internal %s request to url %s: http status code: %d, response: %s",
+                [ $method, $url, $status, $response ]
+            );
             return null;
         }
 

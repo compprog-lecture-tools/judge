@@ -136,14 +136,14 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      * )
      * @SWG\Response(
      *     response="200",
-     *     description="Returns the IDs of the just imported problems and produced messages",
+     *     description="Returns the IDs of the imported problems and any messages produced",
      *     @SWG\Schema(
      *         type="object",
      *         @SWG\Property(property="problem_ids", type="array",
      *             @SWG\Items(type="integer", description="The IDs of the imported problems")
      *         ),
      *         @SWG\Property(property="messages", type="array",
-     *             @SWG\Items(type="string", description="Messages produced whiel adding problems")
+     *             @SWG\Items(type="string", description="Messages produced while adding problems")
      *         )
      *     )
      * )
@@ -157,6 +157,9 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
         $contest     = $this->em->getRepository(Contest::class)->find($contestId);
         $allMessages = [];
         $probIds     = [];
+
+        // Only timeout after 2 minutes, since importing may take a while.
+        set_time_limit(120);
 
         $probId = $request->request->get('problem');
         $problem = null;
@@ -183,9 +186,9 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
                 $zip         = $this->dj->openZipFile($file->getRealPath());
                 $clientName  = $file->getClientOriginalName();
                 $messages    = [];
-                $newProblem  = $this->importProblemService->importZippedProblem($zip, $clientName,
-                                                                                $problem, $contest,
-                                                                                $messages);
+                $newProblem  = $this->importProblemService->importZippedProblem(
+                    $zip, $clientName, $problem, $contest, $messages
+                );
                 $allMessages = array_merge($allMessages, $messages);
                 if ($newProblem) {
                     $this->dj->auditlog('problem', $newProblem->getProbid(), 'upload zip', $clientName);
@@ -289,7 +292,7 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
             ->from(ContestProblem::class, 'cp')
             ->join('cp.problem', 'p')
             ->leftJoin('p.testcases', 'tc')
-            ->select('cp, p, COUNT(tc.testcaseid) AS testdatacount')
+            ->select('cp, partial p.{probid,externalid,name,timelimit,memlimit}, COUNT(tc.testcaseid) AS testdatacount')
             ->andWhere('cp.contest = :cid')
             ->andWhere('cp.allowSubmit = 1')
             ->setParameter(':cid', $contestId)
@@ -323,6 +326,10 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
         /** @var ContestProblem $problem */
         $problem       = $object[0];
         $testDataCount = (int)$object['testdatacount'];
-        return new ContestProblemWrapper($problem, $testDataCount);
+        if ($this->dj->checkrole('jury')) {
+            return new ContestProblemWrapper($problem, $testDataCount);
+        } else {
+            return $problem;
+        }
     }
 }

@@ -12,7 +12,7 @@ use App\Entity\TeamAffiliation;
 use App\Entity\Testcase;
 use App\Entity\User;
 use App\Utils\Utils;
-use Doctrine\Common\Util\Inflector;
+use Doctrine\Common\Inflector\Inflector;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
@@ -451,26 +451,27 @@ class CheckConfigService
                 $moreproblemerrors[$probid] .= sprintf("problem-specific memory limit %s is larger than global script filesize limit (%s).\n", $memlimit, $script_filesize_limit);
             }
 
-            $tcs = $problem->getTestcases();
-            if (count($tcs) === 0) {
+            $tcs_size = $this->em->createQueryBuilder()
+                ->select('tc.testcaseid', 'tc.rank', 'length(tcc.output) as output_size' )
+                ->from(Testcase::class, 'tc')
+                ->join('tc.content', 'tcc')
+                ->andWhere('tc.probid = :probid')
+                ->setParameter(':probid', $probid)
+                ->getQuery()
+                ->getResult();
+            if (count($tcs_size) === 0) {
                 $result = 'E';
                 $moreproblemerrors[$probid] .= sprintf("No testcases for p%s\n", $probid);
             } else {
                 $problem_output_limit = 1024 * ($problem->getOutputLimit() ?: $output_limit);
-                $tcsizequery = $this->em->createQueryBuilder()
-                     ->select('tc.testcaseid')
-                     ->from(Testcase::class, 'tc')
-                     ->join('tc.content', 'tcc')
-                     ->where('length(tcc.output) > :maxoutput')
-                     ->andWhere('tc.probid = :probid')
-                     ->setParameter(':probid', $probid)
-                     ->setParameter(':maxoutput', $problem_output_limit)
-                     ->getQuery()
-                     ->getResult();
-                foreach ($tcsizequery as $row) {
-                    $result = 'E';
-                    $moreproblemerrors[$probid] .= sprintf("Testcase number %s for p%s exceeds output limit of %s\n",
-                    $row['testcaseid'], $probid, $problem_output_limit);
+                foreach ($tcs_size as $row) {
+                    if ($row['output_size'] > $problem_output_limit) {
+                        $result = 'E';
+                        $moreproblemerrors[$probid] .= sprintf(
+                            "Testcase %s for p%s exceeds output limit of %s\n",
+                            $row['rank'], $probid, $problem_output_limit
+                        );
+                    }
                 }
             }
         }
@@ -617,34 +618,22 @@ class CheckConfigService
                         $desc .= sprintf("Flag for %s does not exist (looking for %s)\n", $countryCode, $flagpath);
                     } elseif (!is_readable($flagpath)) {
                          $result = 'W';
-                          $desc .= sprintf("Flag for %s not readable (looking for %s)\n", $countryCode, $flagpath);
+                         $desc .= sprintf("Flag for %s not readable (looking for %s)\n", $countryCode, $flagpath);
                     }
                 }
             }
             if ($show_logos) {
                 if ($aid = $affiliation->getAffilid()) {
-                    $logopaths = [$webDir . sprintf('images/affiliations/%s.png', $aid)];
-                    if ($externalAffilid = $affiliation->getExternalid()) {
-                        $logopaths[] = $webDir . sprintf('images/affiliations/%s.png', $externalAffilid);
+                    $logopath = $webDir . sprintf('images/affiliations/%s.png', $aid);
+                    if ($this->eventLogService->externalIdFieldForEntity($affiliation)) {
+                        $logopath = $webDir . sprintf('images/affiliations/%s.png', $affiliation->getExternalid());
                     }
-                    $exists   = false;
-                    $readable = false;
-                    foreach ($logopaths as $logopath) {
-                        if (file_exists($logopath)) {
-                            $exists = true;
-                            if (is_readable($logopath)) {
-                                $readable = true;
-                            }
-                        }
-                    }
-                    if (!$exists) {
+                    if (!file_exists($logopath)) {
                         $result = 'W';
-                        $desc   .= sprintf("Logo for %s does not exist (looking for %s)\n",
-                                           $affiliation->getShortname(), implode(', ', $logopaths));
-                    } elseif (!$readable) {
+                        $desc   .= sprintf("Logo for %s does not exist (looking for %s)\n", $affiliation->getShortname(), $logopath);
+                    } elseif (!is_readable($logopath)) {
                         $result = 'W';
-                        $desc   .= sprintf("Logo for %s not readable (looking for %s)\n", $affiliation->getShortname(),
-                                           implode(', ', $logopaths));
+                        $desc   .= sprintf("Logo for %s not readable (looking for %s)\n", $affiliation->getShortname(), $logopath);
                     }
                 }
             }

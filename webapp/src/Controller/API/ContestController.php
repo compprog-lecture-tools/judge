@@ -5,8 +5,11 @@ namespace App\Controller\API;
 use App\Entity\Contest;
 use App\Entity\ContestProblem;
 use App\Entity\Event;
+use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
+use App\Service\ImportExportService;
 use App\Utils\Utils;
+use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\QueryBuilder;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use JMS\Serializer\Metadata\PropertyMetadata;
@@ -19,9 +22,11 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Inflector\Inflector;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * @Rest\Route("/api/v4/contests", defaults={ "_format" = "json" })
@@ -33,6 +38,51 @@ use Symfony\Component\Inflector\Inflector;
  */
 class ContestController extends AbstractRestController
 {
+    /**
+     * @var ImportExportService
+     */
+    protected $importExportService;
+
+    /**
+     * @param ImportExportService    $importExportService
+     */
+    public function __construct(EntityManagerInterface $entityManager, DOMJudgeService $dj, EventLogService $eventLogService, ImportExportService $importExportService) {
+        parent::__construct($entityManager, $dj, $eventLogService);
+        $this->importExportService = $importExportService;
+    }
+
+    /**
+     * Add one or more contests.
+     * @param Request $request
+     * @return string
+     * @Rest\Post("")
+     * @IsGranted("ROLE_ADMIN")
+     * @SWG\Post(consumes={"multipart/form-data"})
+     * @SWG\Parameter(
+     *     name="yaml",
+     *     in="formData",
+     *     type="file",
+     *     required=true,
+     *     description="The contest.yaml files to import."
+     * )
+     * @SWG\Response(
+     *     response="200",
+     *     description="Returns a (currently meaningless) status message.",
+     * )
+     * @throws BadRequestHttpException
+     */
+    public function addContestAction(Request $request)
+    {
+        /** @var UploadedFile $yamlFile */
+        $yamlFile = $request->files->get('yaml') ?: [];
+        $data = Yaml::parseFile($yamlFile->getRealPath(), Yaml::PARSE_DATETIME);
+        if ($this->importExportService->importContestYaml($data, $message, $cid)) {
+            return $cid;
+        } else {
+            throw new BadRequestHttpException("Error while adding contest: $message");
+        }
+    }
+
     /**
      * Get all the active contests
      * @param Request $request
@@ -194,11 +244,12 @@ class ContestController extends AbstractRestController
         $response->setCallback(function () use ($contest, $penalty_time) {
             echo "name:                     " . $contest->getName() . "\n";
             echo "short-name:               " . $contest->getExternalid() . "\n";
-            echo "start-time:               " . Utils::absTime($contest->getStarttime(), true) . "\n";
-            echo "duration:                 " . Utils::relTime($contest->getEndtime() - $contest->getStarttime(),
-                                                               true) . "\n";
-            echo "scoreboard-freeze-length: " . Utils::relTime($contest->getEndtime() - $contest->getFreezetime(),
-                                                               true) . "\n";
+            echo "start-time:               " .
+                Utils::absTime($contest->getStarttime(), true) . "\n";
+            echo "duration:                 " .
+                Utils::relTime($contest->getEndtime() - $contest->getStarttime(), true) . "\n";
+            echo "scoreboard-freeze-length: " .
+                Utils::relTime($contest->getEndtime() - $contest->getFreezetime(), true) . "\n";
             echo "penalty-time:             " . $penalty_time . "\n";
         });
         $response->headers->set('Content-Type', 'application/x-yaml');
@@ -302,9 +353,9 @@ class ContestController extends AbstractRestController
         if ($request->query->has('since_id')) {
             $since_id = $request->query->getInt('since_id');
             $event    = $this->em->getRepository(Event::class)->findOneBy([
-                                                                              'eventid' => $since_id,
-                                                                              'cid' => $contest->getCid(),
-                                                                          ]);
+                'eventid' => $since_id,
+                'cid' => $contest->getCid(),
+            ]);
             if ($event === null) {
                 return new Response('Invalid parameter "since_id" requested.', Response::HTTP_BAD_REQUEST);
             }
