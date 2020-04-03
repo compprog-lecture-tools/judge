@@ -60,7 +60,8 @@ To update to a newer version, run
 ```bash
 git subtree pull -P domjudge --squash git@github.com:DOMjudge/domjudge.git <version>
 ```
-Here, `<version>` should be the tag name for the target version.
+Here, `<version>` should be the git commit hash for a release.
+Do not use tag names as that causes problems the next time you update (you will need to manually pull the tags from the DOMjudge repo).
 This will squash all changes since the last version into one commit, and then start a merge into the current branch.
 If something fundamental changed, the docker containers and their startup scripts might also need to be updated.
 For this, manual comparison with the [domjudge-packaging](https://github.com/DOMjudge/domjudge-packaging) is required.
