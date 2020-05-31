@@ -15,6 +15,7 @@ ExecStart=/usr/bin/docker run --rm \
                               --publish %PORT%:80 \
                               --volume %BASEDIR%/secrets/db.password:/secrets/db.password:ro \
                               --volume %BASEDIR%/secrets/db-root.password:/secrets/db-root.password:ro \
+                              --volume %BASEDIR%/affiliations:/opt/domjudge/domserver/webapp/public/images/affiliations:ro \
                               --env CONTAINER_TIMEZONE=%TIMEZONE% \
                               --env MYSQL_HOST=mariadb \
                               --env MYSQL_USER=domjudge \

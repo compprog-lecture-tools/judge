@@ -84,6 +84,10 @@ mkdir -p "${BASE_DIR}/db/backups"
 cp "${SCRIPT_DIR}/default.cnf" "${BASE_DIR}/db/conf.d"
 echo '  done'
 
+echo -n 'Setting up affiliations directory...'
+mkdir -p "${BASE_DIR}/affiliations"
+echo '  done'
+
 echo -n 'Creating docker network...'
 ${SUDO} docker network create ${DOCKER_SUBNET:+--subnet "${DOCKER_SUBNET}"} judge-web > /dev/null
 echo '  done'

@@ -16,3 +16,8 @@ Running `systemctl start judge-backup-db.service` creates a database backup in `
 This is run automatically each day at 3am by a corresponding timer.
 The first backup of each day is full, the following are incremental based on previous one.
 Only backups of the three newest days are kept.
+
+## Affiliation logos
+
+The `<base-dir>/affiliations` is mounted as  `webapp/public/images/affiliation`, and thus can be used to to supply affiliation logos.
+Each logo must be named `<id>.png`, where `id` is the numeric id of the affiliation (*not* the shortname!).
