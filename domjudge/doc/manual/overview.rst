@@ -2,10 +2,10 @@ Overview
 ========
 
 DOMjudge is a system for running programming contests, like the ICPC
-regional and world championship programming contests.
+regional and world finals programming contests.
 
 This usually means that teams are on-site and have a fixed time period (mostly
-5 hours) and one computer to solve a number of problems (mostly 8-11). Problems
+5 hours) and one computer to solve a number of problems (mostly 8-12). Problems
 are solved by writing a program in one of the allowed languages, that reads
 input according to the problem input specification and writes the correct,
 corresponding output.
@@ -44,9 +44,9 @@ DOMjudge requires the following to be available to run. Please refer to the
 chapters for detailed software requirements.
 
 * At least one machine to act as the *DOMjudge server* (or *domserver* for
-  brevity). The machine needs to be runing Linux and a webserver
-  with PHP 7.1.3 or newer. A MySQL or MariaDB database 5.3.3 or
-  newer is also needed.
+  brevity). The machine needs to be running Linux (or possibly a Unix
+  variant) and a webserver with PHP 7.2.5 or newer. A MySQL or MariaDB
+  database is also needed.
 
 * A number of machines to act as *judgehosts* (at least one). They need to run
   Linux with (sudo) root access. Required software is the PHP commandline
@@ -87,6 +87,12 @@ DOMjudge supports running :ref:`multiple judgedaemons <multiple-judgedaemons>`
 in parallel on a single judgehost machine. This might be useful on multi-core
 machines.
 
+.. warning::
+
+  The judgehost requires Linux cgroup support for memory and swap accounting.
+  Platforms that do not provide this support (some virtualization environments,
+  for example WSL 1 / 2) will not work with the judgehost.
+
 Copyright and licencing
 -----------------------
 
@@ -99,29 +105,36 @@ Matt Claycomb,
 Stijn van Drongelen,
 Rob Franken,
 Marc Furon,
+Ragnar Groot Koerkamp,
 Matt Hermes,
-Michal Kaczanowicz,
+Michał Kaczanowicz,
 Jacob Kleerekoper,
+Jason Klein,
+Andreas Kohn,
 Ruud Koot,
 Ilya Kornakov,
 Jan Kuipers,
 Robin Lee,
+Tom Levy,
 Richard Lobb,
 Alex Muntada,
 Dominik Paulus,
 Bert Peters,
 Mart Pluijmaekers,
+Ludo Pulles,
 Tobias Polzer,
 Jeroen Schot,
 Matt Steele,
 Shuhei Takahashi,
+Michael Vasseur,
+Sergei Vorobev,
 Hoai-Thu Vuong,
 Jeroen van Wolffelaar,
 and Github users mpsijm, sylxjtu.
 Some code has been ported from the ETH Zurich fork by Christoph
 Krautz, Thomas Rast et al.
 
-DOMjudge is Copyright (c) 2004 - 2020 by the DOMjudge developers and contributors.
+DOMjudge is Copyright (c) 2004 - |today| by the DOMjudge developers and contributors.
 
 DOMjudge, including its documentation, is free software; you can redistribute
 it and/or modify it under the terms of the GNU General Public License as
@@ -160,9 +173,13 @@ We have a low volume `mailing list for announcements
 of new releases.
 The authors can be reached through the development mailing list.
 You need to be subscribed before you can post. See the
-`development list information page 
+`development list information page
 <https://www.domjudge.org/mailman/listinfo/domjudge-devel>`_
 for subscription and more details.
+
+There is a wiki which collects other pieces of information about
+specific configurations or integrations:
+https://github.com/DOMjudge/domjudge/wiki
 
 DOMjudge has a `Slack workspace <https://www.domjudge.org/chat>`_
 where a number of developers and users of

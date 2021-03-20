@@ -7,6 +7,7 @@ use Doctrine\ORM\QueryBuilder;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -22,11 +23,12 @@ use Symfony\Component\HttpFoundation\Request;
 class ClarificationController extends AbstractRestController
 {
     /**
-     * Get all the clarifications for this contest
+     * Get all the clarifications for this contest.
+     *
+     * Note that we restrict the returned clarifications in the query builder.
      * @param Request $request
      * @return \Symfony\Component\HttpFoundation\Response
      * @Rest\Get("")
-     * @IsGranted({"ROLE_JURY", "ROLE_JUDGEHOST", "ROLE_API_READER"})
      * @SWG\Response(
      *     response="200",
      *     description="Returns all the clarifications for this contest",
@@ -36,6 +38,7 @@ class ClarificationController extends AbstractRestController
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @SWG\Parameter(
      *     name="problem",
      *     in="query",
@@ -50,19 +53,21 @@ class ClarificationController extends AbstractRestController
     }
 
     /**
-     * Get the given clarifications for this contest
+     * Get the given clarifications for this contest.
+     *
+     * Note that we restrict the returned clarifications in the query builder.
      * @param Request $request
      * @param string $id
      * @return \Symfony\Component\HttpFoundation\Response
      * @throws \Doctrine\ORM\NonUniqueResultException
      * @Rest\Get("/{id}")
-     * @IsGranted({"ROLE_JURY", "ROLE_JUDGEHOST", "ROLE_API_READER"})
      * @SWG\Response(
      *     response="200",
      *     description="Returns the given clarification for this contest",
      *     @Model(type=Clarification::class)
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $id)
     {
@@ -84,6 +89,20 @@ class ClarificationController extends AbstractRestController
             ->select('clar, c, r, reply, p')
             ->andWhere('clar.cid = :cid')
             ->setParameter(':cid', $this->getContestId($request));
+
+        if (!$this->dj->checkrole('api_reader') &&
+            !$this->dj->checkrole('judgehost'))
+        {
+            if ($this->dj->checkrole('team')) {
+                $queryBuilder
+                    ->andWhere('clar.sender = :team OR clar.recipient = :team OR (clar.sender IS NULL AND clar.recipient IS NULL)')
+                    ->setParameter(':team', $this->dj->getUser()->getTeam());
+            } else {
+                $queryBuilder
+                    ->andWhere('clar.sender IS NULL')
+                    ->andWhere('clar.recipient IS NULL');
+            }
+        }
 
         if ($request->query->has('problem')) {
             $queryBuilder

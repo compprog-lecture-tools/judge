@@ -6,6 +6,7 @@ use App\Controller\BaseController;
 use App\Entity\ContestProblem;
 use App\Entity\Language;
 use App\Entity\Testcase;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Query\Expr\Join;
@@ -33,19 +34,30 @@ class ProblemController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EntityManagerInterface
      */
     protected $em;
 
     /**
      * ProblemController constructor.
+     *
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EntityManagerInterface $em
      */
-    public function __construct(DOMJudgeService $dj, EntityManagerInterface $em)
-    {
-        $this->dj = $dj;
-        $this->em = $em;
+    public function __construct(
+        DOMJudgeService $dj,
+        ConfigurationService $config,
+        EntityManagerInterface $em
+    ) {
+        $this->dj     = $dj;
+        $this->config = $config;
+        $this->em     = $em;
     }
 
     /**
@@ -56,43 +68,8 @@ class ProblemController extends BaseController
      */
     public function problemsAction()
     {
-        $user               = $this->dj->getUser();
-        $contest            = $this->dj->getCurrentContest($user->getTeamid());
-        $showLimits         = (bool)$this->dj->dbconfig_get('show_limits_on_team_page');
-        $defaultMemoryLimit = (int)$this->dj->dbconfig_get('memory_limit', 0);
-        $timeFactorDiffers  = false;
-        if ($showLimits) {
-            $timeFactorDiffers = $this->em->createQueryBuilder()
-                    ->from(Language::class, 'l')
-                    ->select('COUNT(l)')
-                    ->andWhere('l.allowSubmit = true')
-                    ->andWhere('l.timeFactor <> 1')
-                    ->getQuery()
-                    ->getSingleScalarResult() > 0;
-        }
-
-        $problems = [];
-        if ($contest && $contest->getFreezeData()->started()) {
-            $problems = $this->em->createQueryBuilder()
-                ->from(ContestProblem::class, 'cp')
-                ->join('cp.problem', 'p')
-                ->leftJoin('p.testcases', 'tc')
-                ->select('partial p.{probid,name,externalid,problemtext_type,timelimit,memlimit}', 'cp', 'SUM(tc.sample) AS numsamples')
-                ->andWhere('cp.contest = :contest')
-                ->andWhere('cp.allowSubmit = 1')
-                ->setParameter(':contest', $contest)
-                ->addOrderBy('cp.shortname')
-                ->groupBy('p.probid')
-                ->getQuery()
-                ->getResult();
-        }
-
-        return $this->render('team/problems.html.twig', [
-            'problems' => $problems,
-            'showLimits' => $showLimits,
-            'defaultMemoryLimit' => $defaultMemoryLimit,
-            'timeFactorDiffers' => $timeFactorDiffers,
-        ]);
+        return $this->render('team/problems.html.twig',
+            $this->dj->getTwigDataForProblemsAction($this->dj->getUser()->getTeamid()));
     }
 
 

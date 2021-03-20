@@ -40,11 +40,14 @@
 
 
 /* C++ includes for easy string handling */
+#include <algorithm>
+#include <map>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
+
 using namespace std;
 
 /* These defines are needed in 'version' and 'logmsg' */
@@ -93,6 +96,32 @@ struct option const long_opts[] = {
 	{ NULL,         0,                 NULL,          0 }
 };
 
+class exception : public std::exception {
+private:
+	std::string msg;
+
+public:
+	exception(const std::string &_msg): msg(_msg) {}
+	exception(const char *fmt, ...)
+	{
+		va_list ap;
+		char *_msg;
+
+		va_start(ap, fmt);
+		_msg = vallocstr(fmt, ap);
+		va_end(ap);
+
+		msg = string(_msg);
+		free(_msg);
+	}
+
+	const char *what() const noexcept override
+	{
+		return msg.c_str();
+	}
+
+};
+
 void version();
 void usage();
 void curl_setup();
@@ -104,58 +133,16 @@ char readanswer(const char *answers);
 bool file_istext(char *filename);
 #endif
 
-bool doAPIsubmit();
+std::string stringtolower(std::string);
+std::string decode_HTML_entities(std::string);
+std::string kotlin_base_entry_point(std::string);
 
-Json::Value doAPIrequest(const char *);
+Json::Value doAPIrequest(const std::string &);
 bool readlanguages();
 bool readproblems();
 bool readcontests();
 
-/* Helper function for using libcurl in doAPIsubmit() and doAPIrequest() */
-size_t writesstream(void *ptr, size_t size, size_t nmemb, void *sptr)
-{
-	stringstream *s = (stringstream *) sptr;
-
-	*s << string((char *)ptr,size*nmemb);
-
-	return size*nmemb;
-}
-
-std::string stringtolower(std::string str)
-{
-	unsigned int i;
-
-	for(i=0; i<str.length(); i++) str[i] = tolower(str[i]);
-
-	return str;
-}
-
-const int nHTML_entities = 5;
-const char HTML_entities[nHTML_entities][2][8] = {
-	{"&amp;", "&"},
-	{"&quot;", "\""},
-	{"&apos;", "'"},
-	{"&lt;", "<"},
-	{"&gt;", ">"}};
-
-std::string decode_HTML_entities(std::string str)
-{
-	string res;
-	unsigned int i, j;
-
-	for(i=0; i<str.length(); i++) {
-		for(j=0; j<nHTML_entities; j++) {
-			if ( str.substr(i,strlen(HTML_entities[j][0]))==HTML_entities[j][0] ) {
-				res += HTML_entities[j][1];
-				i += strlen(HTML_entities[j][0]) - 1;
-				break;
-			}
-		}
-		if ( j>=nHTML_entities ) res += str[i];
-	}
-
-	return res;
-}
+bool doAPIsubmit();
 
 int nwarnings;
 
@@ -190,20 +177,6 @@ problem myproblem;
 
 CURL *handle;
 char curlerrormsg[CURL_ERROR_SIZE];
-
-string kotlin_base_entry_point(string filebase)
-{
-	if ( filebase.empty() ) return "_";
-	for(size_t i=0; i<filebase.length(); i++) {
-		if ( !isalnum(filebase[i]) ) filebase[i] = '_';
-	}
-	if ( isalpha(filebase[0]) ) {
-		filebase[0] = toupper(filebase[0]);
-	} else {
-		filebase = '_' + filebase;
-	}
-	return filebase;
-}
 
 int main(int argc, char **argv)
 {
@@ -298,6 +271,8 @@ int main(int argc, char **argv)
 
 	logmsg(LOG_INFO,"set verbosity to %d", verbose);
 
+	if ( show_version ) version(PROGRAM,VERSION);
+
 	/* Make sure that baseurl terminates with a '/' for later concatenation. */
 	if ( !baseurl.empty() && baseurl[baseurl.length()-1]!='/' ) baseurl += '/';
 
@@ -316,7 +291,8 @@ int main(int argc, char **argv)
 	} else {
 		contestid = stringtolower(contestid);
 		for(i=0; i<contests.size(); i++) {
-			if ( stringtolower(contests[i].id) == contestid || stringtolower(contests[i].shortname) == contestid ) {
+			if ( stringtolower(contests[i].id) == contestid ||
+			     stringtolower(contests[i].shortname) == contestid ) {
 				mycontest = contests[i];
 				break;
 			}
@@ -331,7 +307,6 @@ int main(int argc, char **argv)
 	}
 
 	if ( show_help ) usage();
-	if ( show_version ) version(PROGRAM,VERSION);
 
 	if ( mycontest.id.empty() ) usage2(0,"no (valid) contest specified");
 
@@ -450,7 +425,7 @@ lang_found:
 		printf("  problem:     %s\n",myproblem.label.c_str());
 		printf("  language:    %s\n",mylanguage.name.c_str());
 		if ( entry_point!=NULL ) {
-			printf("  entry_point: %s\n",entry_point);
+			printf("  entry point: %s\n",entry_point);
 		}
 		printf("  url:         %s\n",baseurl.c_str());
 
@@ -463,6 +438,16 @@ lang_found:
 
 	doAPIsubmit();
 	return 0;
+}
+
+/* Helper function for using libcurl in doAPIsubmit() and doAPIrequest() */
+size_t writesstream(void *ptr, size_t size, size_t nmemb, void *sptr)
+{
+	stringstream *s = (stringstream *) sptr;
+
+	*s << string((char *)ptr,size*nmemb);
+
+	return size*nmemb;
 }
 
 void curl_setup()
@@ -580,6 +565,7 @@ void usage()
 	if ( !baseurl.empty() ) {
 		printf("The (pre)configured URL is '%s'.\n",baseurl.c_str());
 	}
+	printf("Credentials are read from ~/.netrc (see netrc(4) for details).\n");
 	printf(
 "\n"
 "Examples:\n"
@@ -612,6 +598,9 @@ void usage2(int errnum, const char *mesg, ...)
 	exit(1);
 }
 
+/*
+ * Warns about user errors, printf format arguments expected.
+ */
 void warnuser(const char *warning, ...)
 {
 	char *str;
@@ -693,10 +682,55 @@ magicerror:
 
 #endif /* HAVE_MAGIC_H */
 
+std::string stringtolower(std::string str)
+{
+	unsigned int i;
+
+	for(i=0; i<str.length(); i++) str[i] = tolower(str[i]);
+
+	return str;
+}
+
+const std::map<std::string,std::string> HTML_entities = {
+	{"&amp;", "&"},
+	{"&quot;", "\""},
+	{"&apos;", "'"},
+	{"&lt;", "<"},
+	{"&gt;", ">"},
+};
+
+std::string decode_HTML_entities(std::string str)
+{
+	for(size_t i=0; i<str.length(); i++) {
+		for(auto entity : HTML_entities) {
+			if ( str.substr(i,entity.first.length())==entity.first ) {
+				str.replace(i,entity.first.length(),entity.second);
+				break;
+			}
+		}
+	}
+
+	return str;
+}
+
+std::string kotlin_base_entry_point(std::string filebase)
+{
+	if ( filebase.empty() ) return "_";
+	for(size_t i=0; i<filebase.length(); i++) {
+		if ( !isalnum(filebase[i]) ) filebase[i] = '_';
+	}
+	if ( isalpha(filebase[0]) ) {
+		filebase[0] = toupper(filebase[0]);
+	} else {
+		filebase = '_' + filebase;
+	}
+	return filebase;
+}
+
 /*
- * Make an API call 'funcname'. An error is thrown when the call fails.
+ * Make an API call 'funcname'. An exception is thrown when the call fails.
  */
-Json::Value doAPIrequest(const char *funcname)
+Json::Value doAPIrequest(const std::string &funcname)
 {
 	CURLcode res;
 	char *url;
@@ -706,7 +740,7 @@ Json::Value doAPIrequest(const char *funcname)
 	long http_code;
 	string line;
 
-	url = strdup((baseurl+"api/"+API_VERSION+string(funcname)).c_str());
+	url = strdup((baseurl+"api/"+API_VERSION+funcname).c_str());
 
 	curlerrormsg[0] = 0;
 
@@ -716,7 +750,7 @@ Json::Value doAPIrequest(const char *funcname)
 	logmsg(LOG_INFO,"connecting to %s",url);
 
 	if ( (res=curl_easy_perform(handle))!=CURLE_OK ) {
-		error(0,"'%s': %s",url,curlerrormsg);
+		throw ::exception("'%s': %s", url, curlerrormsg);
 	}
 
 	free(url);
@@ -728,17 +762,16 @@ Json::Value doAPIrequest(const char *funcname)
 			printf("%s\n", decode_HTML_entities(line).c_str());
 		}
 		if ( http_code == 401 ) {
-			error(0, "Authentication failed. Please check your DOMjudge credentials.");
+			throw ::exception("authentication failed, please check your DOMjudge credentials.");
 		} else {
-			error(0, "API request %s failed (code %li)", funcname, http_code);
+			throw ::exception("API request %s failed (code %li)", funcname.c_str(), http_code);
 		}
 	}
 
-	logmsg(LOG_DEBUG,"API call '%s' returned:\n%s\n",funcname,curloutput.str().c_str());
+	logmsg(LOG_DEBUG,"API call '%s' returned:\n%s\n",funcname.c_str(),curloutput.str().c_str());
 
 	if ( !reader.parse(curloutput, result) ) {
-		error(0,"parsing REST API output: %s",
-		        reader.getFormattedErrorMessages().c_str());
+		throw ::exception("parsing REST API output: %s", reader.getFormattedErrorMessages().c_str());
 	}
 
 	return result;
@@ -749,9 +782,17 @@ bool readlanguages()
 	Json::Value res, exts;
 
 	string endpoint = "contests/" + mycontest.id + "/languages";
-	res = doAPIrequest(endpoint.c_str());
+	try {
+		res = doAPIrequest(endpoint);
+	} catch ( std::exception &e ) {
+		warning(0, "%s", e.what());
+		return false;
+	}
 
-	if (!res.isArray()) return false;
+	if (!res.isArray()) {
+		warning(0, "REST API returned unexpected JSON data for endpoint languages");
+		return false;
+	}
 
 	for(Json::ArrayIndex i=0; i<res.size(); i++) {
 		language lang;
@@ -786,9 +827,17 @@ bool readproblems()
 	Json::Value res;
 
 	string endpoint = "contests/" + mycontest.id + "/problems";
-	res = doAPIrequest(endpoint.c_str());
+	try {
+		res = doAPIrequest(endpoint);
+	} catch ( std::exception &e ) {
+		warning(0, "%s", e.what());
+		return false;
+	}
 
-	if(!res.isArray()) return false;
+	if(!res.isArray()) {
+		warning(0, "REST API returned unexpected JSON data for endpoint problems");
+		return false;
+	}
 
 	for(Json::ArrayIndex i=0; i<res.size(); i++) {
 		problem prob;
@@ -813,9 +862,17 @@ bool readcontests()
 {
 	Json::Value res;
 
-	res = doAPIrequest("contests");
+	try {
+		res = doAPIrequest("contests");
+	} catch ( std::exception &e ) {
+		warning(0, "%s", e.what());
+		return false;
+	}
 
-	if(!res.isArray()) return false;
+	if(!res.isArray()) {
+		warning(0, "REST API returned unexpected JSON data for endpoint contests");
+		return false;
+	}
 
 	for(Json::ArrayIndex i=0; i<res.size(); i++) {
 		contest cont;

@@ -18,7 +18,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class BaylorCmsService
 {
-    const BASE_URI = 'https://icpc.baylor.edu';
+    const BASE_URI = 'https://icpc.global';
     const WS_TOKEN_URL = '/auth/realms/cm5/protocol/openid-connect/token';
     const WS_CLICS = '/cm5-contest-rest/rest/contest/export/CLICS/CONTEST/';
 
@@ -91,7 +91,7 @@ class BaylorCmsService
             return false;
         }
         if ($response->getStatusCode() < 200 || $response->getStatusCode() >= 300) {
-            $message = sprintf('Unknown error while retrieving data from icpc.baylor.edu, status code: %d, %s',
+            $message = sprintf('Unknown error while retrieving data from icpc.global, status code: %d, %s',
                                $response->getStatusCode(), $response->getContent(false));
             return false;
         }
@@ -127,7 +127,8 @@ class BaylorCmsService
                  * FIXME: team members are behind a different API call and not important for now
                  */
 
-                $team = $this->em->getRepository(Team::class)->findOneBy(['externalid' => $teamData['teamId']]);
+                /** @var Team $team */
+                $team = $this->em->getRepository(Team::class)->findOneBy(['icpcid' => $teamData['teamId']]);
                 // Note: teams are not deleted but disabled depending on their status
                 $enabled = $teamData['status'] === 'ACCEPTED';
                 if ($team === null) {
@@ -138,7 +139,7 @@ class BaylorCmsService
                         ->setAffiliation($affiliation)
                         ->setEnabled($enabled)
                         ->setComments('Status: ' . $teamData['status'])
-                        ->setExternalid($teamData['teamId'])
+                        ->setIcpcid($teamData['teamId'])
                         ->setRoom($siteName);
                     $this->em->persist($team);
                     $this->em->flush();
@@ -160,7 +161,7 @@ class BaylorCmsService
                         ->setAffiliation($affiliation)
                         ->setEnabled($enabled)
                         ->setComments('Status: ' . $teamData['status'])
-                        ->setExternalid($teamData['teamId'])
+                        ->setIcpcid($teamData['teamId'])
                         ->setRoom($siteName);
 
                     $user = $this->em->getRepository(User::class)->findOneBy(['username' => $username]);
@@ -219,7 +220,7 @@ class BaylorCmsService
             return null;
         }
         if ($response->getStatusCode() < 200 || $response->getStatusCode() >= 300) {
-            $message = sprintf('Unknown error while retrieving data from icpc.baylor.edu, status code: %d, %s',
+            $message = sprintf('Unknown error while retrieving data from icpc.global, status code: %d, %s',
                                $response->getStatusCode(), $response->getContent(false));
             return null;
         }

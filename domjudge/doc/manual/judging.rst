@@ -90,10 +90,12 @@ overshoot` is then used to calculate a 'hard timelimit'.
 This overshoot can be specified in terms of an absolute and relative
 margin.
 
-The `soft:hard` timelimit pair is passed to `runguard` as both
-wall clock and CPU limit. This is used by `runguard` when reporting
-whether the soft, actual timelimit has been surpassed. The submitted
-program gets killed when either the hard wall clock or CPU time has passed.
+The `soft:hard` timelimit pair is passed to `runguard`, the wrapper
+program that applies restrictions to submissions when they are being
+run, as both wall clock and CPU limit. This is used by `runguard` when
+reporting whether the soft, actual timelimit has been surpassed. The
+submitted program gets killed when either the hard wall clock or CPU
+time has passed.
 
 .. _judging-consistency:
 
@@ -144,7 +146,7 @@ Judgehost restrictions
 ----------------------
 It is possible to dedicate certain judgehosts only for certain languages,
 problems or contests; or a combination thereof. To set this up, configure
-the desired restiction pattern under *Judgehost restrictions* from the
+the desired restriction pattern under *Judgehost restrictions* from the
 main menu. For example, you select contest 1 and language Java.
 Then, you can edit all judgehosts and apply the newly created restriction
 to any of them. The judgehosts with this restriction will only pick up
@@ -163,6 +165,26 @@ to No. This can be used to test timings on judgehosts by configuring
 all judgehosts with this restriction and then rejudging a set of submissions
 as many times as there are judgehosts. This will lead to the situation that
 each judgehosts has judged every submission exactly once.
+
+Disk space and cleanup
+----------------------
+The judgehost caches testcase and executable data and stores various
+logs, compiled submissions, etc. on disk. Depending on the amount of
+disk space available and size and length of the contest, you may run
+out of free space. The configuration setting ``diskspace_error`` will
+make a judgehost abort before it actually crashes when running out of
+space.
+
+When you run out of space, the script ``dj_judgehost_cleanup`` can be
+used to remove some unnecessary files. It allows you to remove cache
+and judging data. The judging data is generated and required during
+judging, but afterwards can be safely removed if you don't need it
+anymore for debugging or auditing.
+
+Finally, if a judgedaemon crashes, this can leave stale bind-mounts to
+the chroot environment. Run ``dj_judgehost_cleanup mounts`` to clean
+these up. Run ``dj_judgehost_cleanup help`` for a list of all
+commands.
 
 Solutions to common issues
 --------------------------
@@ -199,7 +221,7 @@ processes for garbage collection).
 
 'runguard: root privileges not dropped'
 ```````````````````````````````````````
-When this error occurs on submititng any source::
+When this error occurs on submitting any source::
 
   Compiling failed with exitcode 255, compiler output:
   /home/domjudge/system/bin/runguard: root privileges not dropped

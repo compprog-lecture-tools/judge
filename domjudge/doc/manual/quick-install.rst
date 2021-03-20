@@ -9,7 +9,7 @@ Appendix: Quick installation checklist
   consult the full installation instruction.
 
 DOMserver
-`````````
+---------
  * Install the MySQL- or MariaDB-server and set a root password for it.
  * Install either nginx or Apache and PHP.
  * Make sure PHP works for the web server and command line scripts.
@@ -47,28 +47,37 @@ DOMserver
  * Run the config checker in the jury web interface.
 
 Judgehosts
-``````````
+----------
  * Extract the source tarball and run
    ``./configure --with-baseurl=<url> && make judgehost``.
  * Run ``sudo make install-judgehost`` to install the system.
 
- * ``useradd -d /nonexistent -U -M -s /bin/false domjudge-run``
+ * ``sudo useradd -d /nonexistent -U -M -s /bin/false domjudge-run``
  * Add to ``/etc/sudoers.d/`` or append to ``/etc/sudoers`` the
    sudoers configuration as in ``etc/sudoers-domjudge``.
  * Set up cgroup support: enable kernel parameters in
-   ``/etc/default/grub`` and reboot, then use
-   ``misc-tools/create_cgroups`` to create cgroups for DOMjudge.
+   ``/etc/default/grub`` and reboot, then run
+   ``systemctl enable create-cgroups --now`` to create cgroups for DOMjudge.
  * Put the right credentials in the file ``etc/restapi.secret``.
-
 
  * Create the pre-built chroot tree: ``sudo bin/dj_make_chroot``
 
- * Start the judge daemon: ``bin/judgedaemon``
+ * Start the judge daemon: either manually with ``bin/judgedaemon``
+   or as a service with ``systemctl enable domjudge-judgehost``.
+
+Submit client
+-------------
+ * Build the client:
+   ``./configure --with-baseurl=<url> && make submitclient``.
+ * Install it in your path and on the team machines.
+ * Add a ``.netrc`` file with valid team credentials.
+ * Run ``submit --help`` to see if it can connect successfully.
 
 Checking if it works
-````````````````````
+--------------------
 It should be done by now. As a check that (almost) everything works,
-the set of test sources can be submitted on the DOMserver::
+the set of test sources can be submitted on the DOMserver, on
+a system that has a working submit client installed::
 
   cd tests
   make check

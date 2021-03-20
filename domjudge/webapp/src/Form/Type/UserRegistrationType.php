@@ -4,10 +4,13 @@ namespace App\Form\Type;
 
 use App\Entity\Team;
 use App\Entity\TeamAffiliation;
+use App\Entity\TeamCategory;
 use App\Entity\User;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\EntityRepository;
 use Symfony\Bridge\Doctrine\Form\Type\EntityType;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
@@ -32,19 +35,30 @@ class UserRegistrationType extends AbstractType
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EntityManagerInterface
      */
     protected $em;
 
     /**
      * UserRegistrationType constructor.
+     *
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EntityManagerInterface $em
      */
-    public function __construct(DOMJudgeService $dj, EntityManagerInterface $em)
-    {
-        $this->dj = $dj;
-        $this->em = $em;
+    public function __construct(
+        DOMJudgeService $dj,
+        ConfigurationService $config,
+        EntityManagerInterface $em
+    ) {
+        $this->dj     = $dj;
+        $this->config = $config;
+        $this->em     = $em;
     }
 
     /**
@@ -77,7 +91,6 @@ class UserRegistrationType extends AbstractType
                     new Callback(function ($teamName, ExecutionContext $context) {
                         if ($this->em->getRepository(Team::class)->findOneBy(['name' => $teamName])) {
                             $context->buildViolation('This team name is already in use.')
-                                ->atPath('teamName')
                                 ->addViolation();
                         }
                     }),
@@ -85,7 +98,31 @@ class UserRegistrationType extends AbstractType
                 'mapped' => false,
             ]);
 
-        if ($this->dj->dbconfig_get('show_affiliations', true)) {
+        $selfRegistrationCategoriesCount = $this->em->getRepository(TeamCategory::class)->count(['allow_self_registration' => 1]);
+        if ($selfRegistrationCategoriesCount > 1) {
+            $builder
+                ->add('teamCategory', EntityType::class, [
+                    'class' => TeamCategory::class,
+                    'label' => false,
+                    'mapped' => false,
+                    'choice_label' => 'name',
+                    'placeholder' => '-- Select category --',
+                    'query_builder' => function (EntityRepository $er) {
+                        return $er
+                            ->createQueryBuilder('c')
+                            ->where('c.allow_self_registration = 1')
+                            ->orderBy('c.sortorder');
+                    },
+                    'attr' => [
+                        'placeholder' => 'Category',
+                    ],
+                    'constraints' => [
+                        new NotBlank(),
+                    ],
+                ]);
+        }
+
+        if ($this->config->get('show_affiliations')) {
             $countries = [];
             foreach (Utils::ALPHA3_COUNTRIES as $alpha3 => $country) {
                 $countries["$country ($alpha3)"] = $alpha3;
@@ -108,25 +145,18 @@ class UserRegistrationType extends AbstractType
                     'attr' => [
                         'placeholder' => 'Affiliation name',
                     ],
-                    'constraints' => [
-                        new Callback(function ($affiliationName, ExecutionContext $context) {
-                            if ($this->em->getRepository(TeamAffiliation::class)->findOneBy(['name' => $affiliationName])) {
-                                $context->buildViolation('This affiliation name is already in use.')
-                                    ->atPath('team_name')
-                                    ->addViolation();
-                            }
-                        }),
-                    ],
                     'mapped' => false,
-                ])
-                ->add('affiliationCountry', ChoiceType::class, [
+                ]);
+            if ($this->config->get('show_flags')) {
+                $builder->add('affiliationCountry', ChoiceType::class, [
                     'label' => false,
                     'required' => false,
                     'mapped' => false,
                     'choices' => $countries,
                     'placeholder' => 'No country',
-                ])
-                ->add('existingAffiliation', EntityType::class, [
+                ]);
+            }
+            $builder->add('existingAffiliation', EntityType::class, [
                     'class' => TeamAffiliation::class,
                     'label' => false,
                     'required' => false,
@@ -174,13 +204,19 @@ class UserRegistrationType extends AbstractType
     public function configureOptions(OptionsResolver $resolver)
     {
         $validateAffiliation = function ($data, ExecutionContext $context) {
-            if ($this->dj->dbconfig_get('show_affiliations', true)) {
+            if ($this->config->get('show_affiliations')) {
                 /** @var Form $form */
                 $form = $context->getRoot();
                 switch ($form->get('affiliation')->getData()) {
                     case 'new':
-                        if (empty($form->get('affiliationName')->getData())) {
+                        $affiliationName = $form->get('affiliationName')->getData();
+                        if (empty($affiliationName)) {
                             $context->buildViolation('This value should not be blank.')
+                                ->atPath('affiliationName')
+                                ->addViolation();
+                        }
+                        if ($this->em->getRepository(TeamAffiliation::class)->findOneBy(['name' => $affiliationName])) {
+                            $context->buildViolation('This affiliation name is already in use.')
                                 ->atPath('affiliationName')
                                 ->addViolation();
                         }

@@ -8,6 +8,7 @@ use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Intl\Exception\NotImplementedException;
 
 /**
  * @Rest\Route("/api/v4/contests/{cid}/judgement-types", defaults={ "_format" = "json" })
@@ -32,6 +33,7 @@ class JudgementTypeController extends AbstractRestController
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function listAction(Request $request)
     {
@@ -70,6 +72,7 @@ class JudgementTypeController extends AbstractRestController
      *     @SWG\Schema(ref="#/definitions/JudgementType")
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $id)
     {
@@ -104,7 +107,7 @@ class JudgementTypeController extends AbstractRestController
                 $solved  = true;
             }
             if ($name == 'compiler-error') {
-                $penalty = $this->dj->dbconfig_get('compile_penalty', false);
+                $penalty = $this->config->get('compile_penalty');
             }
             if ($filteredOn !== null && !in_array($label, $filteredOn)) {
                 continue;
@@ -124,7 +127,7 @@ class JudgementTypeController extends AbstractRestController
      */
     protected function getQueryBuilder(Request $request): QueryBuilder
     {
-        return null;
+        throw new NotImplementedException();
     }
 
     /**
@@ -132,7 +135,6 @@ class JudgementTypeController extends AbstractRestController
      */
     protected function getIdField(): string
     {
-        // Nothing, as we do not use a query
-        return '';
+        throw new NotImplementedException();
     }
 }

@@ -16,8 +16,10 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Query\Expr\Join;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
 /**
  * Class SubmissionService
@@ -50,6 +52,11 @@ class SubmissionService
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
@@ -63,12 +70,14 @@ class SubmissionService
         EntityManagerInterface $em,
         LoggerInterface $logger,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         ScoreboardService $scoreboardService
     ) {
         $this->em                = $em;
         $this->logger            = $logger;
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->eventLogService   = $eventLogService;
         $this->scoreboardService = $scoreboardService;
     }
@@ -173,6 +182,14 @@ class SubmissionService
             }
         }
 
+        if (isset($restrictions['externally_verified'])) {
+            if ($restrictions['externally_verified']) {
+                $queryBuilder->andWhere('ej.verified = true');
+            } else {
+                $queryBuilder->andWhere('ej.verified = false');
+            }
+        }
+
         if (isset($restrictions['external_diff'])) {
             if ($restrictions['external_diff']) {
                 $queryBuilder->andWhere('j.result != ej.result');
@@ -231,7 +248,7 @@ class SubmissionService
             }
         }
 
-        if ($this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL) ==
+        if ($this->config->get('data_source') ==
             DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL) {
             // When we are shadow, also load the external results
             $queryBuilder
@@ -390,7 +407,7 @@ class SubmissionService
         if (count($files) == 0) {
             throw new BadRequestHttpException("No files specified.");
         }
-        if (count($files) > $this->dj->dbconfig_get('sourcefiles_limit', 100)) {
+        if (count($files) > $this->config->get('sourcefiles_limit')) {
             $message = "Tried to submit more than the allowed number of source files.";
             return null;
         }
@@ -409,7 +426,7 @@ class SubmissionService
             return null;
         }
 
-        $sourceSize = $this->dj->dbconfig_get('sourcesize_limit');
+        $sourceSize = $this->config->get('sourcesize_limit');
 
         $freezeData = new FreezeData($contest);
         if (!$this->dj->checkrole('jury') && !$freezeData->started()) {
@@ -448,7 +465,7 @@ class SubmissionService
                         $problem->getProbid(), $contest->getCid()));
         }
 
-        // Reindex array numerically to make sure we can index it in onder
+        // Reindex array numerically to make sure we can index it in order
         $files = array_values($files);
 
         $totalSize = 0;
@@ -493,13 +510,13 @@ class SubmissionService
             return null;
         }
 
-        $this->logger->info('input verified');
+        $this->logger->info('Submission input verified');
 
         // First look up any expected results in file, so as to minimize the
         // SQL transaction time below.
         if ($this->dj->checkrole('jury')) {
             $results = self::getExpectedResults(file_get_contents($files[0]->getRealPath()),
-                $this->dj->dbconfig_get('results_remap', []));
+                $this->config->get('results_remap'));
         }
 
         $submission = new Submission();
@@ -552,31 +569,6 @@ class SubmissionService
         $this->dj->alert('submit', sprintf('submission %d: team %d, language %s, problem %d',
                                            $submission->getSubmitid(), $team->getTeamid(),
                                            $language->getLangid(), $problem->getProblem()->getProbid()));
-
-        if (is_writable($this->dj->getDomjudgeSubmitDir())) {
-            // Copy the submission to the submission directory for safe-keeping
-            foreach ($files as $rank => $file) {
-                $fdata  = [
-                    'cid' => $contest->getCid(),
-                    'submitid' => $submission->getSubmitid(),
-                    'teamid' => $team->getTeamid(),
-                    'langid' => $language->getLangid(),
-                    'probid' => $problem->getProbid(),
-                    'rank' => $rank,
-                    'filename' => $file->getClientOriginalName()
-                ];
-                $toFile = $this->dj->getDomjudgeSubmitDir() . '/' .
-                          $this->getSourceFilename($fdata);
-                if (!@copy($file->getRealPath(), $toFile)) {
-                    $this->logger->warning(
-                        "Could not copy '%s' to '%s'",
-                        [ $file->getRealPath(), $toFile ]
-                    );
-                }
-            }
-        } else {
-            $this->logger->debug('SUBMITDIR not writable, skipping');
-        }
 
         if (Utils::difftime((float)$contest->getEndtime(), $submitTime) <= 0) {
             $this->logger->info(
@@ -822,5 +814,48 @@ class SubmissionService
         }
 
         return $result;
+    }
+
+     * Get a response object containing the given submission as a ZIP
+     *
+     * @param Submission $submission
+     *
+     * @return StreamedResponse
+     * @throws ServiceUnavailableHttpException
+     */
+    public function getSubmissionZipResponse(Submission $submission): StreamedResponse
+    {
+        /** @var SubmissionFile[] $files */
+        $files = $submission->getFiles();
+        $zip   = new \ZipArchive;
+        if (!($tmpfname = tempnam($this->dj->getDomjudgeTmpDir(), "submission_file-"))) {
+            throw new ServiceUnavailableHttpException(null, 'Could not create temporary file.');
+        }
+
+        $res = $zip->open($tmpfname, \ZipArchive::OVERWRITE);
+        if ($res !== true) {
+            throw new ServiceUnavailableHttpException(null, "Could not create temporary zip file.");
+        }
+        foreach ($files as $file) {
+            $zip->addFromString($file->getFilename(), $file->getSourcecode());
+        }
+        $zip->close();
+
+        $filename = 's' . $submission->getSubmitid() . '.zip';
+
+        $response = new StreamedResponse();
+        $response->setCallback(function () use ($tmpfname) {
+            $fp = fopen($tmpfname, 'rb');
+            fpassthru($fp);
+            unlink($tmpfname);
+        });
+        $response->headers->set('Content-Type', 'application/zip');
+        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Content-Length', filesize($tmpfname));
+        $response->headers->set('Content-Transfer-Encoding', 'binary');
+        $response->headers->set('Connection', 'Keep-Alive');
+        $response->headers->set('Accept-Ranges', 'bytes');
+
+        return $response;
     }
 }

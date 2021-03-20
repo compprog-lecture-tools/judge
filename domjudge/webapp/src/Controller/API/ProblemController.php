@@ -7,6 +7,7 @@ use App\Entity\ContestProblem;
 use App\Entity\Problem;
 use App\Helpers\ContestProblemWrapper;
 use App\Helpers\OrdinalArray;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ImportProblemService;
@@ -39,10 +40,11 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
     public function __construct(
         EntityManagerInterface $entityManager,
         DOMJudgeService $DOMJudgeService,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         ImportProblemService $importProblemService
     ) {
-        parent::__construct($entityManager, $DOMJudgeService, $eventLogService);
+        parent::__construct($entityManager, $DOMJudgeService, $config, $eventLogService);
         $this->importProblemService = $importProblemService;
     }
 
@@ -60,6 +62,7 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @throws \Doctrine\ORM\NonUniqueResultException
      * @throws \Exception
      */
@@ -227,38 +230,11 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      *     ref="#/definitions/ContestProblem"
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $id)
     {
-        // Make sure we clear the entity manager class, for when this method is called multiple times by internal requests
-        $this->em->clear();
-        // This method is overwritten, because we need to add ordinal values
-        $queryBuilder = $this->getQueryBuilder($request);
-
-        if ($request->query->has('ids')) {
-            $ids = $request->query->get('ids', []);
-            if (!is_array($ids)) {
-                throw new BadRequestHttpException('\'ids\' should be an array of ID\'s to fetch');
-            }
-
-            $ids = array_unique($ids);
-
-            $queryBuilder
-                ->andWhere(sprintf('%s IN (:ids)', $this->getIdField()))
-                ->setParameter(':ids', $ids);
-        }
-
-        $objects = $queryBuilder
-            ->getQuery()
-            ->getResult();
-
-        if (isset($ids) && count($objects) !== count($ids)) {
-            throw new NotFoundHttpException('One or more objects not found');
-        }
-
-        $objects = array_map([$this, 'transformObject'], $objects);
-
-        $ordinalArray = new OrdinalArray($objects);
+        $ordinalArray = new OrdinalArray($this->listActionHelper($request));
 
         $object = null;
         foreach ($ordinalArray->getItems() as $item) {

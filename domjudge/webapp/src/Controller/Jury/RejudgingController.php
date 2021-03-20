@@ -10,6 +10,7 @@ use App\Entity\Rejudging;
 use App\Entity\Submission;
 use App\Entity\Team;
 use App\Form\Type\RejudgingType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\RejudgingService;
 use App\Service\ScoreboardService;
@@ -47,6 +48,16 @@ class RejudgingController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
+     * @var RejudgingService
+     */
+    protected $rejudgingService;
+
+    /**
      * @var RouterInterface
      */
     protected $router;
@@ -59,13 +70,17 @@ class RejudgingController extends BaseController
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
+        RejudgingService $rejudgingService,
         RouterInterface $router,
         SessionInterface $session
     ) {
-        $this->em      = $em;
-        $this->dj      = $dj;
-        $this->router  = $router;
-        $this->session = $session;
+        $this->em               = $em;
+        $this->dj               = $dj;
+        $this->config           = $config;
+        $this->rejudgingService = $rejudgingService;
+        $this->router           = $router;
+        $this->session          = $session;
     }
 
     /**
@@ -97,7 +112,7 @@ class RejudgingController extends BaseController
             'status' => ['title' => 'status', 'sort' => true],
         ];
 
-        $timeFormat       = (string)$this->dj->dbconfig_get('time_format', '%H:%M');
+        $timeFormat       = (string)$this->config->get('time_format');
         $propertyAccessor = PropertyAccess::createPropertyAccessor();
         $rejudgings_table = [];
         foreach ($rejudgings as $rejudging) {
@@ -112,28 +127,15 @@ class RejudgingController extends BaseController
             if ($rejudging->getStartUser()) {
                 $rejudgingdata['startuser']['value'] = $rejudging->getStartUser()->getName();
             }
-            if ($rejudging->getFinishUser()) {
-                $rejudgingdata['finishuser']['value'] = $rejudging->getFinishUser()->getName();
+            if ($rejudging->getEndtime() !== null) {
+                $rejudgingdata['finishuser']['value'] = $rejudging->getFinishUser() !== null
+                    ? $rejudging->getFinishUser()->getName() : (
+                        $rejudging->getRepeat() > 1 ? "part of repeated rejudging" : "automatically applied");
             }
 
-            $todo = $this->em->createQueryBuilder()
-                ->from(Submission::class, 's')
-                ->select('COUNT(s)')
-                ->andWhere('s.rejudging = :rejudging')
-                ->setParameter(':rejudging', $rejudging)
-                ->getQuery()
-                ->getSingleScalarResult();
-
-            $done = $this->em->createQueryBuilder()
-                ->from(Judging::class, 'j')
-                ->select('COUNT(j)')
-                ->andWhere('j.rejudging = :rejudging')
-                ->andWhere('j.endtime IS NOT NULL')
-                ->setParameter(':rejudging', $rejudging)
-                ->getQuery()
-                ->getSingleScalarResult();
-
-            $todo -= $done;
+            $todoAndDone = $this->rejudgingService->calculateTodo($rejudging);
+            $todo = $todoAndDone['todo'];
+            $done = $todoAndDone['done'];
 
             if ($rejudging->getEndtime() !== null) {
                 $status = $rejudging->getValid() ? 'applied' : 'canceled';
@@ -206,24 +208,7 @@ class RejudgingController extends BaseController
         if (!$rejudging) {
             throw new NotFoundHttpException(sprintf('Rejudging with ID %s not found', $rejudgingId));
         }
-        $todo = $this->em->createQueryBuilder()
-            ->from(Submission::class, 's')
-            ->select('COUNT(s)')
-            ->andWhere('s.rejudging = :rejudging')
-            ->setParameter(':rejudging', $rejudging)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $done = $this->em->createQueryBuilder()
-            ->from(Judging::class, 'j')
-            ->select('COUNT(j)')
-            ->andWhere('j.rejudging = :rejudging')
-            ->andWhere('j.endtime IS NOT NULL')
-            ->setParameter(':rejudging', $rejudging)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $todo -= $done;
+        $todo = $this->rejudgingService->calculateTodo($rejudging)['todo'];
 
         $verdictsConfig = $this->dj->getDomjudgeEtcDir() . '/verdicts.php';
         $verdicts       = include $verdictsConfig;
@@ -306,7 +291,7 @@ class RejudgingController extends BaseController
         }
 
         $viewTypes = [0 => 'newest', 1 => 'unverified', 2 => 'unjudged', 3 => 'diff', 4 => 'all'];
-        $view      = 3;
+        $view      = array_search('diff', $viewTypes);
         if ($request->query->has('view')) {
             $index = array_search($request->query->get('view'), $viewTypes);
             if ($index !== false) {
@@ -337,6 +322,17 @@ class RejudgingController extends BaseController
             $restrictions
         );
 
+        $repetitions = $this->em->createQueryBuilder()
+            ->from(Rejudging::class, 'r')
+            ->select('r.rejudgingid')
+            ->andWhere('r.repeat_rejudgingid = :repeat_rejudgingid')
+            ->andWhere('r.rejudgingid != :rejudgingid')
+            ->setParameter(':repeat_rejudgingid', $rejudging->getRepeatRejudgingId())
+            ->setParameter(':rejudgingid', $rejudging->getRejudgingid())
+            ->orderBy('r.rejudgingid')
+            ->getQuery()
+            ->getScalarResult();
+
         $data = [
             'rejudging' => $rejudging,
             'todo' => $todo,
@@ -349,7 +345,8 @@ class RejudgingController extends BaseController
             'submissionCounts' => $submissionCounts,
             'oldverdict' => $request->query->get('oldverdict', 'all'),
             'newverdict' => $request->query->get('newverdict', 'all'),
-            'showExternalResult' => $this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL) ==
+            'repetitions' => array_column($repetitions, 'rejudgingid'),
+            'showExternalResult' => $this->config->get('data_source') ==
                 DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL,
             'refresh' => [
                 'after' => 15,
@@ -380,7 +377,7 @@ class RejudgingController extends BaseController
      */
     public function finishAction(Request $request, RejudgingService $rejudgingService, ?Profiler $profiler, int $rejudgingId, string $action)
     {
-        // Note: we use a XMLHttpRequest here as Symfony does not support streaming Twig outpit
+        // Note: we use a XMLHttpRequest here as Symfony does not support streaming Twig output
 
         // Disable the profiler toolbar to avoid OOMs.
         if ($profiler) {
@@ -397,8 +394,6 @@ class RejudgingController extends BaseController
             ->getOneOrNullResult();
 
         if ($request->isXmlHttpRequest()) {
-            $response = new StreamedResponse();
-            $response->headers->set('X-Accel-Buffering', 'no');
             $progressReporter = function (string $data, bool $isError = false) {
                 if ($isError) {
                     echo sprintf('<div class="alert alert-danger">%s</div>', $data);
@@ -439,12 +434,11 @@ class RejudgingController extends BaseController
     /**
      * @Route("/add", name="jury_rejudging_add")
      * @param Request              $request
-     * @param ScoreboardService    $scoreboardService
      * @param FormFactoryInterface $formFactory
      * @return \Symfony\Component\HttpFoundation\Response
      * @throws \Exception
      */
-    public function addAction(Request $request, ScoreboardService $scoreboardService, FormFactoryInterface $formFactory)
+    public function addAction(Request $request, FormFactoryInterface $formFactory)
     {
         $formBuilder = $formFactory->createBuilder(RejudgingType::class);
         $formData    = [];
@@ -544,11 +538,15 @@ class RejudgingController extends BaseController
                     'form' => $form->createView(),
                 ]);
             }
-            $rejudgingOrResponse = $this->createRejudging($request, $reason, $judgings, true, $scoreboardService);
-            if ($rejudgingOrResponse instanceof Response) {
-                return $rejudgingOrResponse;
+            $skipped = [];
+            $res = $this->rejudgingService->createRejudging($reason, $judgings, false, 1, null, $skipped);
+            $this->generateFlashMessagesForSkippedJudgings($skipped);
+
+            if ($res === null) {
+                return $this->redirectToLocalReferrer($this->router, $request,
+                                                      $this->generateUrl('jury_index'));
             }
-            return $this->redirectToRoute('jury_rejudging', ['rejudgingId' => $rejudgingOrResponse->getRejudgingid()]);
+            return $this->redirectToRoute('jury_rejudging', ['rejudgingId' => $res->getRejudgingid()]);
         }
         return $this->render('jury/rejudging_form.html.twig', [
             'form' => $form->createView(),
@@ -558,16 +556,16 @@ class RejudgingController extends BaseController
     /**
      * @Route("/create", methods={"POST"}, name="jury_create_rejudge")
      * @param Request           $request
-     * @param ScoreboardService $scoreboardService
      * @return \Symfony\Component\HttpFoundation\RedirectResponse
      */
-    public function createAction(Request $request, ScoreboardService $scoreboardService)
+    public function createAction(Request $request)
     {
-        $table       = $request->request->get('table');
-        $id          = $request->request->get('id');
-        $reason      = $request->request->get('reason') ?: sprintf('%s: %s', $table, $id);
-        $includeAll  = (bool)$request->request->get('include_all');
-        $fullRejudge = (bool)$request->request->get('full_rejudge');
+        $table      = $request->request->get('table');
+        $id         = $request->request->get('id');
+        $reason     = $request->request->get('reason') ?: sprintf('%s: %s', $table, $id);
+        $includeAll = (bool)$request->request->get('include_all');
+        $autoApply  = (bool)$request->request->get('auto_apply');
+        $repeat     = (int)$request->request->get('repeat');
 
         if (empty($table) || empty($id)) {
             throw new BadRequestHttpException('No table or id passed for selection in rejudging');
@@ -585,9 +583,9 @@ class RejudgingController extends BaseController
             if ($rejudging === null) {
                 throw new NotFoundHttpException(sprintf('Rejudging with ID %s not found', $id));
             }
-            $includeAll  = true;
-            $fullRejudge = true;
-            $reason      = $rejudging->getReason();
+            $includeAll = true;
+            $autoApply  = false;
+            $reason     = $rejudging->getReason();
         }
 
         /* These are the tables that we can deal with. */
@@ -605,12 +603,10 @@ class RejudgingController extends BaseController
             throw new BadRequestHttpException(sprintf('unknown table %s in rejudging', $table));
         }
 
-        $em = $this->em;
-
         // Only rejudge submissions in active contests.
         $contests = $this->dj->getCurrentContests();
 
-        $queryBuilder = $em->createQueryBuilder()
+        $queryBuilder = $this->em->createQueryBuilder()
             ->from(Judging::class, 'j')
             ->leftJoin('j.submission', 's')
             ->select('j', 's')
@@ -624,7 +620,7 @@ class RejudgingController extends BaseController
             $queryBuilder->join('s.judgings', 'j2');
         }
 
-        if ($includeAll && $fullRejudge) {
+        if ($includeAll && !$autoApply) {
             $queryBuilder
                 ->andWhere('j.result IS NOT NULL')
                 ->andWhere('j.valid = 1');
@@ -641,16 +637,21 @@ class RejudgingController extends BaseController
 
         if (empty($judgings)) {
             $this->addFlash('danger', 'No judgings matched.');
-            return $this->redirectToLocalReferrer($this->router, $request, $this->generateUrl('jury_index'));
+            return $this->redirectToLocalReferrer($this->router, $request,
+                                                  $this->generateUrl('jury_index'));
         }
 
-        $rejudgingOrResponse = $this->createRejudging($request, $reason, $judgings, $fullRejudge, $scoreboardService);
-        if ($rejudgingOrResponse instanceof Response) {
-            return $rejudgingOrResponse;
+        $skipped = [];
+        $res = $this->rejudgingService->createRejudging($reason, $judgings, $autoApply, $repeat, null, $skipped);
+        $this->generateFlashMessagesForSkippedJudgings($skipped);
+
+        if ($res === null) {
+            return $this->redirectToLocalReferrer($this->router, $request,
+                                                  $this->generateUrl('jury_index'));
         }
 
-        if ($rejudgingOrResponse) {
-            return $this->redirectToRoute('jury_rejudging', ['rejudgingId' => $rejudgingOrResponse->getRejudgingid()]);
+        if ($res instanceof Rejudging) {
+            return $this->redirectToRoute('jury_rejudging', ['rejudgingId' => $res->getRejudgingid()]);
         } else {
             switch ($table) {
                 case 'contest':
@@ -669,108 +670,19 @@ class RejudgingController extends BaseController
         }
     }
 
-    public function createRejudging(
-        Request $request,
-        string $reason,
-        array $judgings,
-        bool $fullRejudge,
-        ScoreboardService $scoreboardService
-    ) {
-        $em = $this->em;
-
-        /** @var Rejudging|null $rejudging */
-        $rejudging = null;
-        if ($fullRejudge) {
-            $rejudging = new Rejudging();
-            $rejudging
-                ->setStartUser($this->dj->getUser())
-                ->setStarttime(Utils::now())
-                ->setReason($reason);
-            $em->persist($rejudging);
-            $em->flush();
-        }
-
-        $singleJudging = count($judgings) == 1;
-        foreach ($judgings as $judging) {
+    private function generateFlashMessagesForSkippedJudgings(array $skipped): void
+    {
+        foreach ($skipped as $judging) {
             $submission = $judging['submission'];
-            if ($submission['rejudgingid'] !== null) {
-                $skipMessage = sprintf('Skipping submission <a href="%s">s%d</a> since it is already part of rejudging <a href="%s">r%d</a>.',
-                    $this->generateUrl('jury_submission', ['submitId' => $submission['submitid']]),
-                    $submission['submitid'],
-                    $this->generateUrl('jury_rejudging', ['rejudgingId' => $submission['rejudgingid']]),
-                    $submission['rejudgingid']);
-                $this->addFlash('danger', $skipMessage);
-                // Already associated rejudging
-                if ($singleJudging) {
-                    // Clean up before throwing an error
-                    if ($rejudging) {
-                        $em->remove($rejudging);
-                        $em->flush();
-                    }
-                    return $this->redirectToLocalReferrer($this->router, $request, $this->generateUrl('jury_index'));
-                } else {
-                    // just skip that submission
-                    continue;
-                }
-            }
-
-            $em->transactional(function () use (
-                $singleJudging,
-                $fullRejudge,
-                $judging,
-                $submission,
-                $rejudging,
-                $scoreboardService,
-                $em
-            ) {
-                if (!$fullRejudge) {
-                    $em->getConnection()->executeUpdate(
-                        'UPDATE judging SET valid = false WHERE judgingid = :judgingid',
-                        [ ':judgingid' => $judging['judgingid'] ]
-                    );
-                }
-
-                $em->getConnection()->executeUpdate(
-                    'UPDATE submission SET judgehost = null WHERE submitid = :submitid AND rejudgingid IS NULL',
-                    [ ':submitid' => $submission['submitid'] ]
-                );
-                if ($rejudging) {
-                    $em->getConnection()->executeUpdate(
-                        'UPDATE submission SET rejudgingid = :rejudgingid WHERE submitid = :submitid AND rejudgingid IS NULL',
-                        [
-                            ':rejudgingid' => $rejudging->getRejudgingid(),
-                            ':submitid' => $submission['submitid'],
-                        ]
-                    );
-                }
-
-                if ($singleJudging) {
-                    $teamid = $submission['teamid'];
-                    if ($teamid) {
-                        $em->getConnection()->executeUpdate(
-                            'UPDATE team SET judging_last_started = null WHERE teamid = :teamid',
-                            [ ':teamid' => $teamid ]
-                        );
-                    }
-                }
-
-                if (!$fullRejudge) {
-                    // Clear entity manager to get fresh data
-                    $em->clear();
-                    $contest = $em->getRepository(Contest::class)
-                        ->find($submission['cid']);
-                    $team    = $em->getRepository(Team::class)
-                        ->find($submission['teamid']);
-                    $problem = $em->getRepository(Problem::class)
-                        ->find($submission['probid']);
-                    $scoreboardService->calculateScoreRow($contest, $team, $problem);
-                }
-            });
-
-            if (!$fullRejudge) {
-                $this->dj->auditlog('judging', $judging['judgingid'], 'mark invalid', '(rejudge)');
-            }
+            $msg = sprintf(
+                'Skipping submission <a href="%s">s%d</a> since it is ' .
+                'already part of rejudging <a href="%s">r%d</a>.',
+                $this->generateUrl('jury_submission', ['submitId' => $submission['submitid']]),
+                $submission['submitid'],
+                $this->generateUrl('jury_rejudging', ['rejudgingId' => $submission['rejudgingid']]),
+                $submission['rejudgingid']
+            );
+            $this->addFlash('danger', $msg);
         }
-        return $rejudging;
     }
 }

@@ -1,9 +1,13 @@
+variables:
+  SAST_DEFAULT_ANALYZERS: "flawfinder, phpcs-security-audit, eslint, secrets"
+
 stages:
   - test
 
 include:
   - template: Dependency-Scanning.gitlab-ci.yml
   - template: SAST.gitlab-ci.yml
+  - template: License-Scanning.gitlab-ci.yml
 
 check syntax:
   stage: test
@@ -40,10 +44,12 @@ integration:
   stage: test
   before_script:
     # Takes about 1 minute to pull
+    - echo -e "section_start:`date +%s`:docker\r\e[0Kdocker pull"
     - time docker pull domjudge/gitlabci:1.0
+    - echo -e "section_end:`date +%s`:docker\r\e[0K"
   image: docker:stable
   services:
-    - docker:18-dind
+    - docker:19-dind
     - mariadb
   variables:
     MYSQL_ROOT_PASSWORD: password
@@ -63,8 +69,9 @@ integration:
       - misc-tools/icpctools/dj-scoreboard.json
       - misc-tools/icpctools/cds-events.json
       - misc-tools/icpctools/cds-scoreboard.json
-  cache:
-    key: integration
-    paths:
-      - lib/vendor/
-      - chroot
+# TODO: Re-enable when gitlab is in better shape...
+#  cache:
+#    key: integration
+#    paths:
+#      - lib/vendor/
+#      - chroot

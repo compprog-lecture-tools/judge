@@ -12,6 +12,8 @@ convenient to teams if the URL of DOMjudge is set as the default homepage,
 and if using a self-signed HTTPS certificate, that the browser is made
 to trust this certificate.
 
+.. _submit_client_requirements:
+
 Command line submit client
 --------------------------
 DOMjudge comes with a command line submit client which makes it really
@@ -39,15 +41,16 @@ content::
 
   machine yourhost.example.edu login user0123 password Fba^2bHzz
 
-See the netrc(4) manual page for more details. You can run ``./submit --help``
+See the `netrc manual page`_ for more details. You can run ``./submit --help``
 to inspect its configuration and options.
 
 Rebuilding team documentation
 -----------------------------
 
-The team manual is only available in PDF format and must be built from
-the LaTeX sources in `doc/team` *after* configuration of the
-system.
+The source of the team manual can be found in ``doc/manual/team.rst``.
+The team manual can incorporate specific settings of your environment,
+most notably the URL of the DOMjudge installation. To achieve this,
+rebuild the team manual *after* configuration of the system.
 
 .. note::
 
@@ -59,18 +62,17 @@ system.
   specific environment and rules.
 
 
-The team manual requires a working LaTeX installation and some packages
-available in the `texlive-latex-extra` package in any modern Linux
-distribution.
-
-When DOMjudge is configure and site-specific
-configuration set, the team manual can be generated with the command
-`genteammanual` found under `docs/team`. The PDF
-document will be placed in the current
-directory or a directory given as argument.
+When DOMjudge is configured and site-specific configuration set,
+the team manual can be generated with the command ``make docs``.
 The following should do it on a Debian-like system::
 
-  sudo apt install make texlive-latex-extra texlive-latex-recommended texlive-lang-european
-  cd <INSTALL_PATH>/docs/team
-  ./genteammanual [targetdir]
+  sudo apt install python-sphinx python-sphinx-rtd-theme rst2pdf fontconfig python3-yaml
+  cd <INSTALL_PATH>/doc/
+  make docs
 
+On Debian 11 and above, install
+``python3-sphinx python3-sphinx-rtd-theme rst2pdf fontconfig python3-yaml`` instead.
+
+The resulting manual will then be found in the ``team/`` subdirectory.
+
+.. _netrc manual page: https://ec.haxx.se/usingcurl/usingcurl-netrc

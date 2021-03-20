@@ -4,6 +4,7 @@ namespace App\Controller\Jury;
 
 use App\Controller\BaseController;
 use App\Entity\Contest;
+use App\Entity\ExternalJudgement;
 use App\Entity\Judgehost;
 use App\Entity\Judging;
 use App\Entity\JudgingRun;
@@ -14,6 +15,7 @@ use App\Entity\SubmissionFile;
 use App\Entity\Team;
 use App\Entity\Testcase;
 use App\Service\BalloonService;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ScoreboardService;
@@ -28,6 +30,7 @@ use Symfony\Component\Form\Extension\Core\Type\SubmitType;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -54,6 +57,11 @@ class SubmissionController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var SubmissionService
      */
     protected $submissionService;
@@ -65,19 +73,23 @@ class SubmissionController extends BaseController
 
     /**
      * SubmissionController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param SubmissionService      $submissionService
      * @param RouterInterface        $router
      */
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         SubmissionService $submissionService,
         RouterInterface $router
     ) {
         $this->em                = $em;
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->submissionService = $submissionService;
         $this->router            = $router;
     }
@@ -173,7 +185,7 @@ class SubmissionController extends BaseController
             'filteredProblems' => $filteredProblems,
             'filteredLanguages' => $filteredLanguages,
             'filteredTeams' => $filteredTeams,
-            'showExternalResult' => $this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL) ==
+            'showExternalResult' => $this->config->get('data_source') ==
                 DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL,
         ];
 
@@ -283,32 +295,15 @@ class SubmissionController extends BaseController
         $claimWarning = null;
 
         if ($request->get('claim') || $request->get('unclaim')) {
-            $user   = $this->dj->getUser();
-            $action = $request->get('claim') ? 'claim' : 'unclaim';
+            if ($response = $this->processClaim($selectedJudging, $request, $claimWarning)) {
+                return $response;
+            }
+        }
 
-            if ($selectedJudging === null) {
-                $claimWarning = sprintf('Cannot %s this submission: no valid judging found.', $action);
-            } elseif ($selectedJudging->getVerified()) {
-                $claimWarning = sprintf('Cannot %s this submission: judging already verified.', $action);
-            } elseif (!$user && $action === 'claim') {
-                $claimWarning = 'Cannot claim this submission: no jury member specified.';
-            } else {
-                if (!empty($selectedJudging->getJuryMember()) && $action === 'claim' &&
-                    $user->getUsername() !== $selectedJudging->getJuryMember() &&
-                    !$request->request->has('forceclaim')) {
-                    $claimWarning = sprintf('Submission has been claimed by %s. Claim again on this page to force an update.',
-                                            $selectedJudging->getJuryMember());
-                } else {
-                    $selectedJudging->setJuryMember($action === 'claim' ? $user->getUsername() : null);
-                    $this->em->flush();
-                    $this->dj->auditlog('judging', $selectedJudging->getJudgingid(), $action . 'ed');
-
-                    if ($action === 'claim') {
-                        return $this->redirectToRoute('jury_submission', ['submitId' => $submission->getSubmitid()]);
-                    } else {
-                        return $this->redirectToRoute('jury_submissions');
-                    }
-                }
+        if ($request->get('claimdiff') || $request->get('unclaimdiff')) {
+            $externalJudgement = $submission->getExternalJudgements()->first();
+            if ($response = $this->processClaim($externalJudgement, $request, $claimWarning)) {
+                return $response;
             }
         }
 
@@ -381,7 +376,7 @@ class SubmissionController extends BaseController
             }
         }
 
-        $outputDisplayLimit    = (int)$this->dj->dbconfig_get('output_display_limit', 2000);
+        $outputDisplayLimit    = (int)$this->config->get('output_display_limit');
         $outputTruncateMessage = sprintf("\n[output display truncated after %d B]\n", $outputDisplayLimit);
 
         $externalRuns = [];
@@ -406,6 +401,7 @@ class SubmissionController extends BaseController
 
         $runs       = [];
         $runsOutput = [];
+        $sameTestcaseIds = true;
         if ($selectedJudging || $externalJudgement) {
             $queryBuilder = $this->em->createQueryBuilder()
                 ->from(Testcase::class, 't')
@@ -439,7 +435,25 @@ class SubmissionController extends BaseController
                 ->getQuery()
                 ->getResult();
 
+            $judgingRunTestcaseIdsInOrder = $this->em->createQueryBuilder()
+                ->from(JudgingRun::class, 'jr')
+                ->select('jr.testcaseid')
+                ->andWhere('jr.judging = :judging')
+                ->setParameter(':judging', $selectedJudging)
+                ->orderBy('jr.endtime')
+                ->getQuery()
+                ->getScalarResult();
+
+            $cnt = 0;
             foreach ($runResults as $runResult) {
+                /** @var Testcase $testcase */
+                $testcase = $runResult[0];
+                if (isset($judgingRunTestcaseIdsInOrder[$cnt])) {
+                    if ($testcase->getTestcaseid() != $judgingRunTestcaseIdsInOrder[$cnt]['testcaseid']) {
+                        $sameTestcaseIds = false;
+                    }
+                }
+                $cnt++;
                 $firstJudgingRun = $runResult[0]->getFirstJudgingRun();
                 $runs[] = $runResult[0];
                 unset($runResult[0]);
@@ -518,11 +532,12 @@ class SubmissionController extends BaseController
             'selectedJudging' => $selectedJudging,
             'lastJudging' => $lastJudging,
             'runs' => $runs,
+            'sameTestcaseIds' => $sameTestcaseIds,
             'externalRuns' => $externalRuns,
             'runsOutput' => $runsOutput,
             'lastRuns' => $lastRuns,
             'unjudgableReasons' => $unjudgableReasons,
-            'verificationRequired' => (bool)$this->dj->dbconfig_get('verification_required', false),
+            'verificationRequired' => (bool)$this->config->get('verification_required'),
             'claimWarning' => $claimWarning,
             'combinedRunCompare' => $submission->getProblem()->getCombinedRunCompare(),
         ];
@@ -546,6 +561,16 @@ class SubmissionController extends BaseController
         return $this->redirectToRoute('jury_submission', [
             'submitId' => $jid->getSubmitid(),
             'jid' => $jid->getJudgingid(),
+        ]);
+    }
+
+    /**
+     * @Route("/by-external-judgement-id/{externalJudgement}", name="jury_submission_by_external_judgement")
+     */
+    public function viewForExternalJudgementAction(ExternalJudgement $externalJudgement)
+    {
+        return $this->redirectToRoute('jury_submission', [
+            'submitId' => $externalJudgement->getSubmitid(),
         ]);
     }
 
@@ -590,19 +615,7 @@ class SubmissionController extends BaseController
                             $submission->getTeamid());
 
         $outputRun = $run->getOutput()->getOutputRun();
-
-        $response = new StreamedResponse();
-        $response->setCallback(function () use ($outputRun) {
-            echo $outputRun;
-        });
-        $response->headers->set('Content-Type', 'application/octet-stream');
-        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
-        $response->headers->set('Content-Length', strlen($outputRun));
-        $response->headers->set('Content-Transfer-Encoding', 'binary');
-        $response->headers->set('Connection', 'Keep-Alive');
-        $response->headers->set('Accept-Ranges', 'bytes');
-
-        return $response;
+        return Utils::streamAsBinaryFile($outputRun, $filename);
     }
 
     /**
@@ -629,14 +642,96 @@ class SubmissionController extends BaseController
             return $response;
         }
 
-        return $this->render('jury/submission_source.html.twig', $this->submissionService->getDiffedSourceFiles($submission));
+        /** @var SubmissionFile[] $files */
+        $files = $this->em->createQueryBuilder()
+            ->from(SubmissionFile::class, 'file')
+            ->select('file')
+            ->andWhere('file.submission = :submission')
+            ->setParameter(':submission', $submission)
+            ->orderBy('file.rank')
+            ->getQuery()
+            ->getResult();
+
+        $originalSubmission = $originalFiles = null;
+
+        if ($submission->getOrigsubmitid()) {
+            /** @var Submission $originalSubmission */
+            $originalSubmission = $this->em->getRepository(Submission::class)->find($submission->getOrigsubmitid());
+
+            /** @var SubmissionFile[] $files */
+            $originalFiles = $this->em->createQueryBuilder()
+                ->from(SubmissionFile::class, 'file')
+                ->select('file')
+                ->andWhere('file.submission = :submission')
+                ->setParameter(':submission', $originalSubmission)
+                ->orderBy('file.rank')
+                ->getQuery()
+                ->getResult();
+
+            /** @var Submission $oldSubmission */
+            $oldSubmission = $this->em->createQueryBuilder()
+                ->from(Submission::class, 's')
+                ->select('s')
+                ->andWhere('s.probid = :probid')
+                ->andWhere('s.langid = :langid')
+                ->andWhere('s.submittime < :submittime')
+                ->andWhere('s.origsubmitid = :origsubmitid')
+                ->setParameter(':probid', $submission->getProbid())
+                ->setParameter(':langid', $submission->getLangid())
+                ->setParameter(':submittime', $submission->getSubmittime())
+                ->setParameter(':origsubmitid', $submission->getOrigsubmitid())
+                ->orderBy('s.submittime', 'DESC')
+                ->setMaxResults(1)
+                ->getQuery()
+                ->getOneOrNullResult();
+        } else {
+            $oldSubmission = $this->em->createQueryBuilder()
+                ->from(Submission::class, 's')
+                ->select('s')
+                ->andWhere('s.teamid = :teamid')
+                ->andWhere('s.probid = :probid')
+                ->andWhere('s.langid = :langid')
+                ->andWhere('s.submittime < :submittime')
+                ->setParameter(':teamid', $submission->getTeamid())
+                ->setParameter(':probid', $submission->getProbid())
+                ->setParameter(':langid', $submission->getLangid())
+                ->setParameter(':submittime', $submission->getSubmittime())
+                ->orderBy('s.submittime', 'DESC')
+                ->setMaxResults(1)
+                ->getQuery()
+                ->getOneOrNullResult();
+        }
+
+        /** @var SubmissionFile[] $files */
+        $oldFiles = $this->em->createQueryBuilder()
+            ->from(SubmissionFile::class, 'file')
+            ->select('file')
+            ->andWhere('file.submission = :submission')
+            ->setParameter(':submission', $oldSubmission)
+            ->orderBy('file.rank')
+            ->getQuery()
+            ->getResult();
+
+        $oldFileStats      = $oldFiles !== null ? $this->determineFileChanged($files, $oldFiles) : [];
+        $originalFileStats = $originalFiles !== null ? $this->determineFileChanged($files, $originalFiles) : [];
+
+        return $this->render('jury/submission_source.html.twig', [
+            'submission' => $submission,
+            'files' => $files,
+            'oldSubmission' => $oldSubmission,
+            'oldFiles' => $oldFiles,
+            'oldFileStats' => $oldFileStats,
+            'originalSubmission' => $originalSubmission,
+            'originalFiles' => $originalFiles,
+            'originalFileStats' => $originalFileStats,
+        ]);
     }
 
     /**
      * @Route("/{submission}/edit-source", name="jury_submission_edit_source")
      * @param Request    $request
      * @param Submission $submission
-     * @return \Symfony\Component\HttpFoundation\RedirectResponse|Response
+     * @return RedirectResponse|Response
      * @throws \Exception
      */
     public function editSourceAction(Request $request, Submission $submission)
@@ -716,7 +811,7 @@ class SubmissionController extends BaseController
                     throw new ServiceUnavailableHttpException(null, "Could not create temporary file.");
                 }
                 file_put_contents($tmpfname, $submittedData['source' . $file->getRank()]);
-                $filesToSubmit[] = new UploadedFile($tmpfname, $file->getFilename(), null, null, null, true);
+                $filesToSubmit[] = new UploadedFile($tmpfname, $file->getFilename(), null, null, true);
             }
 
             $team = $this->dj->getUser()->getTeam();
@@ -766,7 +861,7 @@ class SubmissionController extends BaseController
      * @param ScoreboardService $scoreboardService
      * @param Request           $request
      * @param int               $submitId
-     * @return \Symfony\Component\HttpFoundation\RedirectResponse
+     * @return RedirectResponse
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Exception
      */
@@ -802,7 +897,7 @@ class SubmissionController extends BaseController
      * @param BalloonService    $balloonService
      * @param Request           $request
      * @param int               $judgingId
-     * @return \Symfony\Component\HttpFoundation\RedirectResponse
+     * @return RedirectResponse
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Doctrine\ORM\NoResultException
      * @throws \Doctrine\ORM\NonUniqueResultException
@@ -829,14 +924,14 @@ class SubmissionController extends BaseController
             $this->dj->auditlog('judging', $judging->getJudgingid(),
                                              $verified ? 'set verified' : 'set unverified');
 
-            if ((bool)$this->dj->dbconfig_get('verification_required', false)) {
+            if ((bool)$this->config->get('verification_required')) {
                 // Log to event table (case of no verification required is handled
                 // in the REST API API/JudgehostController::addJudgingRunAction
                 $eventLogService->log('judging', $judging->getJudgingid(), 'update', $judging->getCid());
             }
         });
 
-        if ((bool)$this->dj->dbconfig_get('verification_required', false)) {
+        if ((bool)$this->config->get('verification_required')) {
             $this->em->clear();
             /** @var Judging $judging */
             $judging = $this->em->getRepository(Judging::class)->find($judgingId);
@@ -869,5 +964,140 @@ class SubmissionController extends BaseController
         }
 
         return $this->redirect($redirect);
+    }
+
+
+    /**
+     * @Route("/shadow-difference/{extjudgementid<\d+>}/verify", name="jury_shadow_difference_verify", methods={"POST"})
+     * @param EventLogService $eventLogService
+     * @param Request         $request
+     * @param int             $extjudgementid
+     *
+     * @return RedirectResponse
+     */
+    public function verifyShadowDifferenceAction(
+        EventLogService $eventLogService,
+        Request $request,
+        int $extjudgementid
+    ) {
+        /** @var ExternalJudgement $judgement */
+        $judgement  = $this->em->getRepository(ExternalJudgement::class)->find($extjudgementid);
+        $this->em->transactional(function () use ($eventLogService, $request, $judgement) {
+            $verified = $request->request->getBoolean('verified');
+            $comment  = $request->request->get('comment');
+            $judgement
+                ->setVerified($verified)
+                ->setJuryMember($verified ? $this->dj->getUser()->getUsername() : null)
+                ->setVerifyComment($comment);
+
+            $this->em->flush();
+            $this->dj->auditlog('external_judgement', $judgement->getExtjudgementid(),
+                $verified ? 'set verified' : 'set unverified');
+        });
+
+        // Redirect to referrer page after verification or back to submission page when unverifying.
+        if ($request->request->getBoolean('verified')) {
+            $redirect = $request->request->get('redirect', $this->generateUrl('jury_shadow_differences'));
+        } else {
+            $redirect = $this->generateUrl('jury_submission_by_external_judgement', ['externalJudgement' => $extjudgementid]);
+        }
+
+        return $this->redirect($redirect);
+    }
+
+    /**
+     * @param SubmissionFile[] $files
+     * @param SubmissionFile[] $oldFiles
+     * @return array
+     */
+    protected function determineFileChanged(array $files, array $oldFiles)
+    {
+        $result = [
+            'added' => [],
+            'removed' => [],
+            'changed' => [],
+            'changedfiles' => [], // These will be shown, so we will add pairs of files here
+            'unchanged' => [],
+        ];
+
+        $newFilenames = [];
+        $oldFilenames = [];
+        foreach ($files as $newfile) {
+            $oldFilenames = [];
+            foreach ($oldFiles as $oldFile) {
+                if ($newfile->getFilename() === $oldFile->getFilename()) {
+                    if ($oldFile->getSourcecode() === $newfile->getSourcecode()) {
+                        $result['unchanged'][] = $newfile->getFilename();
+                    } else {
+                        $result['changed'][]      = $newfile->getFilename();
+                        $result['changedfiles'][] = [$newfile, $oldFile];
+                    }
+                }
+                $oldFilenames[] = $oldFile->getFilename();
+            }
+            $newFilenames[] = $newfile->getFilename();
+        }
+
+        $result['added']   = array_diff($newFilenames, $oldFilenames);
+        $result['removed'] = array_diff($oldFilenames, $newFilenames);
+
+        // Special case: if we have exactly one file now and before but the filename is different, use that for diffing
+        if (count($result['added']) === 1 && count($result['removed']) === 1 && empty($result['changed'])) {
+            $result['added']        = [];
+            $result['removed']      = [];
+            $result['changed']      = [$files[0]->getFilename()];
+            $result['changedfiles'] = [[$files[0], $oldFiles[0]]];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param Judging|ExternalJudgement|null $judging
+     * @param Request                        $request
+     * @param string                         $claimWarning
+     *
+     * @return RedirectResponse|null
+     */
+    protected function processClaim($judging, Request $request, ?string &$claimWarning)
+    {
+        $user   = $this->dj->getUser();
+        $action = ($request->get('claim') || $request->get('claimdiff')) ? 'claim' : 'unclaim';
+
+        $type = ($judging instanceof ExternalJudgement) ?'shadow difference' : 'submission';
+
+        if ($judging === null) {
+            $claimWarning = sprintf('Cannot %s this %s: no valid judging found.', $type, $action);
+        } elseif ($judging->getVerified()) {
+            $claimWarning = sprintf('Cannot %s this %s: judging already verified.', $type, $action);
+        } elseif (!$user && $action === 'claim') {
+            $claimWarning = sprintf('Cannot claim this %s: no jury member specified.', $type);
+        } else {
+            if (!empty($judging->getJuryMember()) && $action === 'claim' &&
+                $user->getUsername() !== $judging->getJuryMember() &&
+                !$request->request->has('forceclaim')) {
+                $claimWarning = sprintf('%s has been claimed by %s. Claim again on this page to force an update.',
+                    ucfirst($type), $judging->getJuryMember());
+            } else {
+                $judging->setJuryMember($action === 'claim' ? $user->getUsername() : null);
+                $this->em->flush();
+                if ($judging instanceof ExternalJudgement) {
+                    $auditLogType = 'external_judgement';
+                    $auditLogId = $judging->getExtjudgementid();
+                } else {
+                    $auditLogType = 'judging';
+                    $auditLogId = $judging->getJudgingid();
+                }
+                $this->dj->auditlog($auditLogType, $auditLogId, $action . 'ed');
+
+                if ($action === 'claim') {
+                    return $this->redirectToRoute('jury_submission', ['submitId' => $judging->getSubmitid()]);
+                } else {
+                    return $this->redirectToRoute('jury_submissions');
+                }
+            }
+        }
+
+        return null;
     }
 }

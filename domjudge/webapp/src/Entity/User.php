@@ -9,6 +9,7 @@ use Doctrine\ORM\Mapping as ORM;
 use Exception;
 use JMS\Serializer\Annotation as Serializer;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
+use Symfony\Component\Security\Core\User\EquatableInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -22,7 +23,7 @@ use Symfony\Component\Validator\Constraints as Assert;
  *     uniqueConstraints={@ORM\UniqueConstraint(name="username", columns={"username"}, options={"lengths":{"190"}})})
  * @UniqueEntity("username", message="This username is already in use.")
  */
-class User implements UserInterface, \Serializable
+class User implements UserInterface, EquatableInterface, \Serializable
 {
     /**
      * @var int
@@ -109,7 +110,7 @@ class User implements UserInterface, \Serializable
      *     options={"comment"="IP Address used to autologin","default"="NULL"},
      *     nullable=true)
      * @Serializer\SerializedName("ip")
-     * @Assert\Ip()
+     * @Assert\Ip(version="all")
      */
     private $ipAddress;
 
@@ -517,7 +518,7 @@ class User implements UserInterface, \Serializable
      */
     public function getTeamName()
     {
-        return $this->getTeam() ? $this->getTeam()->getName() : null;
+        return $this->getTeam() ? $this->getTeam()->getEffectiveName() : null;
     }
 
     /**
@@ -590,5 +591,29 @@ class User implements UserInterface, \Serializable
         }
 
         return $result;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function isEqualTo(UserInterface $user)
+    {
+        if (!$user instanceof self) {
+            return false;
+        }
+
+        if ($this->getPassword() !== $user->getPassword()) {
+            return false;
+        }
+
+        if ($this->getUsername() !== $user->getUsername()) {
+            return false;
+        }
+
+        if ($this->getEnabled() !== $user->getEnabled()) {
+            return false;
+        }
+
+        return true;
     }
 }

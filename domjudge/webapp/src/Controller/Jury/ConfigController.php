@@ -3,14 +3,16 @@
 namespace App\Controller\Jury;
 
 use App\Entity\Configuration;
-use App\Entity\Judging;
 use App\Service\CheckConfigService;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
@@ -39,7 +41,12 @@ class ConfigController extends AbstractController
     /**
      * @var CheckConfigService
      */
-    protected $CheckConfigService;
+    protected $checkConfigService;
+
+    /**
+     * @var ConfigurationService
+     */
+    protected $config;
 
     /**
      * TeamCategoryController constructor.
@@ -47,155 +54,98 @@ class ConfigController extends AbstractController
      * @param LoggerInterface        $logger
      * @param DOMJudgeService        $dj
      * @param CheckConfigService     $checkConfigService
+     * @param ConfigurationService $config
      */
     public function __construct(
         EntityManagerInterface $em,
         LoggerInterface $logger,
         DOMJudgeService $dj,
-        CheckConfigService $checkConfigService
+        CheckConfigService $checkConfigService,
+        ConfigurationService $config
     ) {
         $this->em                 = $em;
         $this->logger             = $logger;
         $this->dj                 = $dj;
         $this->checkConfigService = $checkConfigService;
-    }
-
-    private function logUnverifiedJudgings(EventLogService $eventLogService)
-    {
-        /** @var Judging[] $judgings */
-        $judgings = $this->em->getRepository(Judging::class)->findBy(
-            [ 'verified' => 0, 'valid' => 1]
-        );
-
-        $judgings_per_contest = [];
-        foreach ($judgings as $judging) {
-            $judgings_per_contest[$judging->getCid()][] = $judging->getJudgingid();
-        }
-
-        // Log to event table; normal cases are handled in:
-        // * API/JudgehostController::addJudgingRunAction
-        // * Jury/SubmissionController::verifyAction
-        foreach ($judgings_per_contest as $cid => $judging_ids) {
-            $eventLogService->log('judging', $judging_ids, 'update', $cid);
-        }
-
-        $this->logger->info("created events for unverified judgings");
+        $this->config             = $config;
     }
 
     /**
      * @Route("", name="jury_config")
-     * @param EventLogService   $eventLogService
-     * @param Request           $request
+     * @param EventLogService $eventLogService
+     * @param Request $request
+     * @return RedirectResponse|Response
+     * @throws Exception
      */
     public function indexAction(EventLogService $eventLogService, Request $request)
     {
-        /** @var Configuration[] */
-        $options = $this->em->getRepository(Configuration::class)->findAll();
+        $specs = $this->config->getConfigSpecification();
+        foreach ($specs as &$spec) {
+            $spec = $this->config->addOptions($spec);
+        }
+        unset($spec);
+        /** @var Configuration[] $options */
+        $options = $this->em->createQueryBuilder()
+            ->from(Configuration::class, 'c',  'c.name')
+            ->select('c')
+            ->getQuery()
+            ->getResult();
         if ($request->getMethod() == 'POST' && $request->request->has('save')) {
             $this->addFlash('scoreboard_refresh', 'After changing specific ' .
                             'settings, you might need to refresh the scoreboard.');
 
-            $needs_merge = false;
-            foreach ($options as $option) {
-                if (!$request->request->has('config_' . $option->getName())) {
-                    // Special-case bool, since checkboxes don't return a
-                    // value when unset.
-                    if ( $option->getType() != 'bool' ) continue;
-                    $val = false;
-                } else {
-                    $val = $request->request->get('config_' . $option->getName());
-                }
-                if ($option->getName() == 'verification_required' &&
-                    $option->getValue() && !$val ) {
-                    // If toggled off, we have to send events for all judgings
-                    // that are complete, but not verified yet. Scoreboard
-                    // cache refresh should take care of the rest. See #645.
-                    $this->logUnverifiedJudgings($eventLogService);
-                    $needs_merge = true;
-                }
-                $old_val = $option->getValue();
-                switch ( $option->getType() ) {
-                    case 'bool':
-                        $option->setValue((bool)$val);
-                        break;
-
-                    case 'int':
-                        $option->setValue((int)$val);
-                        break;
-
-                    case 'string':
-                        $option->setValue($val);
-                        break;
-
-                    case 'array_val':
-                        $result = array();
-                        foreach ($val as $data) {
-                            if (!empty($data)) {
-                                $result[] = $data;
+            $data = [];
+            foreach ($request->request->all() as $key => $value) {
+                if (strpos($key, 'config_') === 0) {
+                    $valueToUse = $value;
+                    if (is_array($value)) {
+                        $firstItem = reset($value);
+                        if (is_array($firstItem) && isset($firstItem['key'])) {
+                            $valueToUse = [];
+                            foreach ($value as $item) {
+                                $valueToUse[$item['key']] = $item['val'];
                             }
                         }
-                        $option->setValue($result);
-                        break;
-
-                    case 'array_keyval':
-                        $result = array();
-                        foreach ($val as $data) {
-                            if (!empty($data['key'])) {
-                                $result[$data['key']] = $data['val'];
-                            }
-                        }
-                        $option->setValue($result);
-                        break;
-
-                    default:
-                        $this->logger->warn(
-                            "configation option '%s' has unknown type '%s'",
-                            [ $option->getName(), $option->getType() ]
-                        );
-                }
-                if ($option->getValue() != $old_val) {
-                    $val_json = $this->dj->jsonEncode($option->getValue());
-                    $this->dj->auditlog('configuration', $option->getName(), 'updated', $val_json);
+                    }
+                    $data[substr($key, strlen('config_'))] = $valueToUse;
                 }
             }
-
-            if ( $needs_merge ) {
-                foreach ($options as $option) $this->em->merge($option);
-            }
-
-            $this->em->flush();
+            $this->config->saveChanges($data, $eventLogService, $this->dj);
             return $this->redirectToRoute('jury_config');
         }
 
-        /** @var Configuration[] */
-        $options = $this->em->getRepository(Configuration::class)->findAll();
         $categories = array();
-        foreach ($options as $option) {
-            if (!in_array($option->getCategory(), $categories)) {
-                $categories[] = $option->getCategory();
+        foreach ($specs as $spec) {
+            if (!in_array($spec['category'], $categories)) {
+                $categories[] = $spec['category'];
             }
         }
-        $all_data = array();
+        $allData = [];
         foreach ($categories as $category) {
-            $data = array();
-            foreach ($options as $option) {
-                if ($option->getCategory() !== $category) {
+            $data = [];
+            foreach ($specs as $specName => $spec) {
+                if ($spec['category'] !== $category) {
                     continue;
                 }
-                $data[] = array(
-                    'name' => $option->getName(),
-                    'type' => $option->getType(),
-                    'value' => $option->getValue(),
-                    'description' => $option->getDescription()
-                );
+                $data[] = [
+                    'name' => $specName,
+                    'type' => $spec['type'],
+                    'value' => isset($options[$specName]) ?
+                        $options[$specName]->getValue() :
+                        $spec['default_value'],
+                    'description' => $spec['description'],
+                    'options' => $spec['options'] ?? null,
+                    'key_options' => $spec['key_options'] ?? null,
+                    'value_options' => $spec['value_options'] ?? null,
+                ];
             }
-            $all_data[] = array(
+            $allData[] = [
                 'name' => $category,
                 'data' => $data
-            );
+            ];
         }
         return $this->render('jury/config.html.twig', [
-            'options' => $all_data,
+            'options' => $allData,
         ]);
     }
 

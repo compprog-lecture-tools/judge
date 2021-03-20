@@ -1,8 +1,11 @@
 Installation of the DOMserver
 =============================
 
-The DOMjudge server is the central entity that runs the DOMjudge web interface
-and API that teams, jury members and the judgehosts connect to.
+The DOMjudge server (short DOMserver) is the central entity that runs
+the DOMjudge web interface and API that teams, jury members and the
+judgehosts connect to.
+
+.. _domserver_requirements:
 
 Requirements
 ------------
@@ -20,9 +23,9 @@ System requirements
 
 Software requirements
 `````````````````````
-* A web server with support for PHP >= 7.1.3 and the ``mysqli``, ``curl``, ``gd``,
+* A web server with support for PHP >= 7.2.5 and the ``mysqli``, ``curl``, ``gd``,
   ``mbstring``, ``intl``, ``zip``, ``xml`` and ``json`` extensions for PHP.
-* MySQL or MariaDB >= 5.3.3 database. This can be on the same machine, but for
+* MySQL or MariaDB database. This can be on the same machine, but for
   advanced setups can also run on a dedicated machine.
 * An NTP daemon, for keeping the clocks between jury system and team
   workstations in sync.
@@ -31,15 +34,14 @@ For your convenience, the following command will install the necessary
 software on the DOMjudge server as mentioned above when using Debian
 GNU/Linux, or one of its derivative distributions like Ubuntu::
 
-  sudo apt install zip unzip mariadb-server apache2 \
-        php php-fpm php-cli \
-        php-gd php-curl php-mysql php-json php-xml php-intl php-mbstring \
-        php-zip composer ntp
+  sudo apt install acl zip unzip mariadb-server apache2 \
+        php php-fpm php-gd php-cli php-intl php-mbstring php-mysql \
+        php-curl php-json php-xml php-zip composer ntp
 
 The following command can be used on RedHat Enterprise Linux, and related
 distributions like CentOS and Fedora::
 
-  sudo yum install zip unzip mariadb-server httpd \
+  sudo yum install acl zip unzip mariadb-server httpd \
         php-gd php-cli php-intl php-mbstring php-mysqlnd \
         php-xml php-zip composer ntp
 
@@ -76,7 +78,7 @@ administrator access to it. Run::
   dj_setup_database [-u <mysql admin user>] [-p <password>|-r] install
 
 This first creates the DOMjudge database credentials file
-``etc/dbpasswords.secret``.
+``etc/dbpasswords.secret`` if it does not exist already.
 
 Then it creates the database and user and inserts some
 default/example data into the domjudge database. The option

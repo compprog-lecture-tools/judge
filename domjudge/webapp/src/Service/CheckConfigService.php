@@ -9,6 +9,7 @@ use App\Entity\Language;
 use App\Entity\Problem;
 use App\Entity\Team;
 use App\Entity\TeamAffiliation;
+use App\Entity\TeamCategory;
 use App\Entity\Testcase;
 use App\Entity\User;
 use App\Utils\Utils;
@@ -27,6 +28,11 @@ class CheckConfigService
      * @var EntityManagerInterface
      */
     protected $em;
+
+    /**
+     * @var ConfigurationService
+     */
+    protected $config;
 
     /**
      * @var DOMJudgeService
@@ -56,6 +62,7 @@ class CheckConfigService
     public function __construct(
         bool $debug,
         EntityManagerInterface $em,
+        ConfigurationService $config,
         DOMJudgeService $dj,
         EventLogService $eventLogService,
         RouterInterface $router,
@@ -63,6 +70,7 @@ class CheckConfigService
     ) {
         $this->debug           = $debug;
         $this->em              = $em;
+        $this->config          = $config;
         $this->dj              = $dj;
         $this->eventLogService = $eventLogService;
         $this->router          = $router;
@@ -77,7 +85,6 @@ class CheckConfigService
             'php_version' => $this->checkPhpVersion(),
             'php_extensions' => $this->checkPhpExtensions(),
             'php_settings' => $this->checkPhpSettings(),
-            'mysql_version' => $this->checkMysqlVersion(),
             'mysql_settings' => $this->checkMysqlSettings(),
         ];
 
@@ -89,7 +96,6 @@ class CheckConfigService
             'filesizememlimit' => $this->checkScriptFilesizevsMemoryLimit(),
             'debugdisabled' => $this->checkDebugDisabled(),
             'tmpdirwritable' => $this->checkTmpdirWritable(),
-            'submitdirwritable' => $this->checkSubmitdirWritable(),
         ];
 
         $results['Configuration'] = $config;
@@ -103,7 +109,7 @@ class CheckConfigService
 
         $pl = [
             'problems' => $this->checkProblemsValidate(),
-            'languges' => $this->checkLanguagesValidate(),
+            'languages' => $this->checkLanguagesValidate(),
             'judgability' => $this->checkProblemLanguageJudgability(),
         ];
 
@@ -112,6 +118,7 @@ class CheckConfigService
         $teams = [
             'affiliations' => $this->checkAffiliations(),
             'teamdupenames' => $this->checkTeamDuplicateNames(),
+            'selfregistration' => $this->checkSelfRegistration(),
         ];
 
         $results['Teams'] = $teams;
@@ -124,7 +131,7 @@ class CheckConfigService
     public function checkPhpVersion()
     {
         $my = PHP_VERSION;
-        $req = '7.1.3';
+        $req = '7.2.5';
         $result = version_compare($my, $req, '>=');
         return ['caption' => 'PHP version',
                 'result' => ($result ? 'O' : 'E'),
@@ -159,7 +166,7 @@ class CheckConfigService
 
     public function checkPhpSettings()
     {
-        $sourcefiles_limit = $this->dj->dbconfig_get('sourcefiles_limit', 100);
+        $sourcefiles_limit = $this->config->get('sourcefiles_limit');
         $max_files = ini_get('max_file_uploads');
 
         /* PHP will silently discard any files above the max_file_uploads limit,
@@ -179,7 +186,7 @@ class CheckConfigService
         $postmaxvars = ['post_max_size', 'memory_limit', 'upload_max_filesize'];
         foreach ($postmaxvars as $var) {
             /* skip 0 or empty values, and -1 which means 'unlimited' */
-            if ($size = Utils::phpini_to_bytes(ini_get($var))) {
+            if ($size = Utils::phpiniToBytes(ini_get($var))) {
                 if ($size != '-1') {
                     $sizes[$var] = $size;
                 }
@@ -199,17 +206,6 @@ class CheckConfigService
         return ['caption' => 'PHP settings',
                 'result' => $result,
                 'desc' => $desc];
-    }
-
-    public function checkMysqlVersion()
-    {
-        $r = $this->em->getConnection()->fetchAll('SHOW VARIABLES WHERE variable_name = "version"');
-        $my = $r[0]['Value'];
-        $req = '5.5.3';
-        $result = version_compare($my, $req, '>=');
-        return ['caption' => 'MySQL version',
-                'result' => ($result ? 'O' : 'E'),
-                'desc' => sprintf('You have MySQL version %s. The minimum required is %s', $my, $req)];
     }
 
     public function checkMysqlSettings()
@@ -279,7 +275,7 @@ class CheckConfigService
 
         $scripts = ['compare', 'run'];
         foreach ($scripts as $type) {
-            $scriptid = $this->dj->dbconfig_get('default_' . $type);
+            $scriptid = $this->config->get('default_' . $type);
             if (!$this->em->getRepository(Executable::class)->find($scriptid)) {
                 $res = 'E';
                 $desc .= sprintf("The default %s script '%s' does not exist.\n", $type, $scriptid);
@@ -295,8 +291,8 @@ class CheckConfigService
 
     public function checkScriptFilesizevsMemoryLimit()
     {
-        if ($this->dj->dbconfig_get('script_filesize_limit') <
-            $this->dj->dbconfig_get('memory_limit')) {
+        if ($this->config->get('script_filesize_limit') <=
+            $this->config->get('memory_limit')) {
              $result = 'W';
         } else {
              $result = 'O';
@@ -304,7 +300,11 @@ class CheckConfigService
         return ['caption' => 'Compile file size vs. memory limit',
                 'result' => $result,
                 'desc' => 'If the script filesize limit is lower than the memory limit, then ' .
-                    'compilation of sources that statically allocate memory may fail.'];
+                'compilation of sources that statically allocate memory may fail. We ' .
+                'recommend to include a margin to be on the safe side. The current ' .
+                '"script_filesize_limit" = ' . $this->config->get('script_filesize_limit') . ' ' .
+                'while "memory_limit" = ' . $this->config->get('memory_limit') . '.'
+            ];
     }
 
     public function checkDebugDisabled()
@@ -334,22 +334,6 @@ class CheckConfigService
                 'desc' => sprintf('TMPDIR (%s) is not writable by the webserver; ' .
                  'Showing diffs and editing of submissions may not work.',
                  $tmpdir)];
-    }
-
-    public function checkSubmitdirWritable()
-    {
-        $submitdir = $this->dj->getDomjudgeSubmitdir();
-        if (is_writable($submitdir)) {
-            return ['caption' => 'Submitdir writable',
-                    'result' => 'O',
-                    'desc' => sprintf('Submitdir (%s) can be used to save backup ' .
-                         'copies of submissioms.',
-                         $submitdir)];
-        }
-        return ['caption' => 'Submitdir writable',
-                'result' => 'W',
-                'desc' => sprintf('The webserver has no write access to Submitdir (%s), ' .
-                'and thus will not be able to make backup copies of submissions.', $submitdir)];
     }
 
 
@@ -410,8 +394,8 @@ class CheckConfigService
     public function checkProblemsValidate()
     {
         $problems = $this->em->getRepository(Problem::class)->findAll();
-        $script_filesize_limit = $this->dj->dbconfig_get('script_filesize_limit');
-        $output_limit = $this->dj->dbconfig_get('output_limit');
+        $script_filesize_limit = $this->config->get('script_filesize_limit');
+        $output_limit = $this->config->get('output_limit');
 
         $problemerrors = $scripterrors = [];
         $result = 'O';
@@ -496,7 +480,6 @@ class CheckConfigService
     public function checkLanguagesValidate()
     {
         $languages = $this->em->getRepository(Language::class)->findAll();
-        $script_filesize_limit = $this->dj->dbconfig_get('script_filesize_limit');
 
         $languageerrors = $scripterrors = [];
         $result = 'O';
@@ -591,8 +574,8 @@ class CheckConfigService
 
     public function checkAffiliations()
     {
-        $show_logos = $this->dj->dbconfig_get('show_affiliation_logos');
-        $show_flags = $this->dj->dbconfig_get('show_flags');
+        $show_logos = $this->config->get('show_affiliation_logos');
+        $show_flags = $this->config->get('show_flags');
 
         if (!$show_logos && !$show_flags) {
             return ['caption' => 'Team affiliations',
@@ -653,7 +636,7 @@ class CheckConfigService
         $desc = '';
         $seen = [];
         foreach ($teams as $team) {
-            $seen[$team->getName()][] = $team->getTeamid();
+            $seen[$team->getEffectiveName()][] = $team->getTeamid();
         }
         foreach ($seen as $teamname => $teams) {
             if (count($teams) > 1) {
@@ -665,6 +648,35 @@ class CheckConfigService
         $desc = $desc ?: 'Every team name is unique';
 
         return ['caption' => 'Team name uniqueness',
+            'result' => $result,
+            'desc' => $desc];
+    }
+
+    public function checkSelfRegistration()
+    {
+        $result = 'O';
+        $desc = '';
+
+        $selfRegistrationCategories = $this->em->getRepository(TeamCategory::class)->findBy(
+            ['allow_self_registration' => 1],
+            ['sortorder' => 'ASC']
+        );
+        if (count($selfRegistrationCategories) === 0) {
+            $desc .= "Self-registration is disabled.\n";
+        } else {
+            $desc .= "Self-registration is enabled.\n";
+            if (count($selfRegistrationCategories) === 1) {
+                $desc .= sprintf("Team category for self-registered teams: %s.\n",
+                    $selfRegistrationCategories[0]->getName());
+            } else {
+                $desc .= sprintf("Team categories allowed for self-registered teams: %s.\n",
+                    implode(', ', array_map(function($category) {
+                        return $category->getName();
+                    }, $selfRegistrationCategories)));
+            }
+        }
+
+        return ['caption' => 'Self-registration',
             'result' => $result,
             'desc' => $desc];
     }

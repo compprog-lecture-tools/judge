@@ -136,6 +136,11 @@ class EventLogService implements ContainerAwareInterface
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EntityManagerInterface
      */
     protected $em;
@@ -147,10 +152,12 @@ class EventLogService implements ContainerAwareInterface
 
     public function __construct(
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EntityManagerInterface $em,
         LoggerInterface $logger
     ) {
         $this->dj     = $dj;
+        $this->config = $config;
         $this->em     = $em;
         $this->logger = $logger;
 
@@ -233,7 +240,7 @@ class EventLogService implements ContainerAwareInterface
 
         // Make a combined string to keep track of the data ID's
         $dataidsCombined = json_encode($dataIds);
-        $idsCombined     = $ids === null ? null : is_array($ids) ? json_encode($ids) : $ids;
+        $idsCombined     = $ids === null ? null : (is_array($ids) ? json_encode($ids) : $ids);
 
         $this->logger->debug(
             "EventLogService::log arguments: '%s' '%s' '%s' '%s' '%s' '%s'",
@@ -290,7 +297,7 @@ class EventLogService implements ContainerAwareInterface
             $ids = [$ids];
         }
 
-        $idsCombined = $ids === null ? null : is_array($ids) ? json_encode($ids) : $ids;
+        $idsCombined = $ids === null ? null : (is_array($ids) ? json_encode($ids) : $ids);
 
         // State is a special case, as it works without an ID
         if ($type !== 'state' && count(array_filter($ids)) !== count($dataIds)) {
@@ -362,7 +369,7 @@ class EventLogService implements ContainerAwareInterface
         // Generate JSON content if not set, for deletes this is only the ID.
         if ($action === self::ACTION_DELETE) {
             $json = array_values(array_map(function ($id) {
-                return ['id' => $id];
+                return ['id' => (string)$id];
             }, $ids));
         } elseif ($json === null) {
             $url = $endpoint[self::KEY_URL];
@@ -631,7 +638,7 @@ class EventLogService implements ContainerAwareInterface
             if ($endpointType === 'state') {
                 $event->setAction(self::ACTION_UPDATE);
             } else {
-                // Set the action basd on whether there was already an event
+                // Set the action based on whether there was already an event
                 // for the same endpoint and ID
                 $event->setAction(
                     $existingEvent === null ?
@@ -771,7 +778,7 @@ class EventLogService implements ContainerAwareInterface
                 break;
         }
 
-        // Now check every rerefence to see if we have an event for it
+        // Now check every reference to see if we have an event for it
         foreach ($toCheck as $endpointType => $endpointIds) {
             // Make sure we always use arrays to check, even if we have a single value
             $endpointIds = (array)$endpointIds;
@@ -912,8 +919,7 @@ class EventLogService implements ContainerAwareInterface
         if ($endpointData[self::KEY_ALWAYS_USE_EXTERNAL_ID] ?? false) {
             $lookupExternalid = true;
         } else {
-            $dataSource = $this->dj->dbconfig_get('data_source',
-                                                  DOMJudgeService::DATA_SOURCE_LOCAL);
+            $dataSource = $this->config->get('data_source');
 
             if ($dataSource !== DOMJudgeService::DATA_SOURCE_LOCAL) {
                 $endpointType = $endpointData[self::KEY_TYPE];

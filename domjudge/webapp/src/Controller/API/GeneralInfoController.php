@@ -2,15 +2,19 @@
 
 namespace App\Controller\API;
 
+use App\Entity\Configuration;
 use App\Entity\Contest;
+use App\Entity\Judging;
 use App\Entity\User;
 use App\Service\CheckConfigService;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use Doctrine\ORM\EntityManagerInterface;
 use FOS\RestBundle\Controller\AbstractFOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Nelmio\ApiDocBundle\Annotation\Model;
+use Psr\Log\LoggerInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
@@ -39,6 +43,11 @@ class GeneralInfoController extends AbstractFOSRestController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
@@ -54,25 +63,37 @@ class GeneralInfoController extends AbstractFOSRestController
     protected $router;
 
     /**
+     * @var LoggerInterface
+     */
+    protected $logger;
+
+    /**
      * GeneralInfoController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EventLogService        $eventLogService
      * @param CheckConfigService     $checkConfigService
      * @param RouterInterface        $router
+     * @param LoggerInterface        $logger
      */
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         CheckConfigService $checkConfigService,
-        RouterInterface $router
+        RouterInterface $router,
+        LoggerInterface $logger
     ) {
         $this->em                 = $em;
         $this->dj                 = $dj;
         $this->eventLogService    = $eventLogService;
         $this->checkConfigService = $checkConfigService;
         $this->router             = $router;
+        $this->config             = $config;
+        $this->logger             = $logger;
     }
 
     /**
@@ -158,36 +179,9 @@ class GeneralInfoController extends AbstractFOSRestController
 
         $result = [];
         foreach ($contests as $contest) {
-            $resultItem                    = ['cid' => $contest->getCid()];
-            $resultItem['num_submissions'] = (int)$this->em
-                ->createQuery(
-                    'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                WHERE s.cid = :cid')
-                ->setParameter(':cid', $contest->getCid())
-                ->getSingleScalarResult();
-            $resultItem['num_queued']      = (int)$this->em
-                ->createQuery(
-                    'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid AND j.valid != 0)
-                WHERE s.cid = :cid
-                AND j.result IS NULL
-                AND s.valid = 1')
-                ->setParameter(':cid', $contest->getCid())
-                ->getSingleScalarResult();
-            $resultItem['num_judging']     = (int)$this->em
-                ->createQuery(
-                    'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid)
-                WHERE s.cid = :cid
-                AND j.result IS NULL
-                AND j.valid = 1
-                AND s.valid = 1')
-                ->setParameter(':cid', $contest->getCid())
-                ->getSingleScalarResult();
-            $result[]                      = $resultItem;
+            $contestStats = $this->dj->getContestStats($contest);
+            $contestStats['cid'] = $contest->getCid();
+            $result[] = $contestStats;
         }
 
         return $result;
@@ -237,13 +231,44 @@ class GeneralInfoController extends AbstractFOSRestController
         $onlypublic = !($this->dj->checkrole('jury') || $this->dj->checkrole('judgehost'));
         $name       = $request->query->get('name');
 
-        $result = $this->dj->dbconfig_get($name, null, $onlypublic);
+        if ($name) {
+            $result = $this->config->get($name, $onlypublic);
+        } else {
+            $result = $this->config->all($onlypublic);
+        }
 
         if ($name !== null) {
             return [$name => $result];
         }
 
         return $result;
+    }
+
+    /**
+     * Update configuration variables
+     * @Rest\Put("/config")
+     * @IsGranted("ROLE_ADMIN")
+     * @SWG\Response(
+     *     response="200",
+     *     description="The full configuration after change",
+     *     @SWG\Schema(type="object")
+     * )
+     * @SWG\Parameter(
+     *     name="body",
+     *     in="body",
+     *     type="object",
+     *     description="The config variables to update. Keys are configuration names, values are configuration values. For scalars, use scalars. For arrays, use arrays with scalars and for key-value arrays use objects.",
+     *     required=true,
+     *     schema={}
+     * )
+     * @param Request $request
+     * @return \App\Entity\Configuration[]|mixed
+     * @throws \Exception
+     */
+    public function updateConfigurationAction(Request $request)
+    {
+        $this->config->saveChanges($request->request->all(), $this->eventLogService, $this->dj);
+        return $this->config->all(false);
     }
 
     /**
@@ -295,4 +320,5 @@ class GeneralInfoController extends AbstractFOSRestController
             return 'cid';
         }
     }
+
 }

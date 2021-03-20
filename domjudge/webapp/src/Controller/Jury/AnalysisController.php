@@ -9,6 +9,7 @@ use App\Entity\Problem;
 use App\Entity\Submission;
 use App\Entity\Team;
 use App\Service\DOMJudgeService;
+use Doctrine\ORM\Query\Expr;
 use Doctrine\ORM\QueryBuilder;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -109,7 +110,6 @@ class AnalysisController extends AbstractController
         }
 
         // Next select information about the teams
-        $teams = [];
         if ($contest->isOpenToAllTeams()) {
             $teams = $this->applyFilter($em->createQueryBuilder()
                                             ->select('t', 'ts', 'j', 'lang', 'a')
@@ -164,7 +164,7 @@ class AnalysisController extends AbstractController
           'problem_num_testcases' => $num_testcases,
           'team_num_submissions' => $num_submissions,
 
-          'team_attemped_n_problems' => [],
+          'team_attempted_n_problems' => [],
           'teams_solved_n_problems' => [],
 
           'problem_attempts' => [],
@@ -224,7 +224,7 @@ class AnalysisController extends AbstractController
             }
           }
           $misc['team_stats'][$team->getTeamId()] = $team_stats;
-          AnalysisController::set_or_increment($misc['team_attemped_n_problems'], count($team_stats['problems_submitted']));
+          AnalysisController::set_or_increment($misc['team_attempted_n_problems'], count($team_stats['problems_submitted']));
           AnalysisController::set_or_increment($misc['teams_solved_n_problems'], $team_stats['total_accepted']);
 
           // Calculate how long it has been since their last submission
@@ -249,12 +249,30 @@ class AnalysisController extends AbstractController
           return ($a->getSubmitTime() < $b->getSubmitTime()) ? -1: 1;
         });
 
+        $maxDelayedJudgings = 10;
+        $delayedTimeDiff = 5;
+        $delayedJudgings = $em->createQueryBuilder()
+            ->from(Submission::class, 's')
+            ->innerJoin(Judging::class, 'j', Expr\Join::WITH, 's.submitid = j.submitid')
+            ->select('s.submitid, MIN(j.judgingid) AS judgingid, s.submittime, MIN(j.starttime) - s.submittime AS timediff, COUNT(j.judgingid) AS num_judgings')
+            ->andWhere('s.contest = :contest')
+            ->setParameter('contest', $contest)
+            ->groupBy('s.submitid')
+            ->andHaving('timediff > :timediff')
+            ->setParameter('timediff', $delayedTimeDiff)
+            ->orderBy('timediff', 'DESC')
+            ->getQuery()->getResult();
 
         return $this->render('jury/analysis/contest_overview.html.twig', [
             'contest' => $contest,
             'problems' => $problems,
             'teams' => $teams,
             'submissions' => $submissions,
+            'delayed_judgings' => [
+                'data' => array_slice($delayedJudgings, 0, $maxDelayedJudgings),
+                'overflow' => count($delayedJudgings) - $maxDelayedJudgings,
+                'delay' => $delayedTimeDiff,
+            ],
             'misc' => $misc,
             'filters' => self::FILTERS,
             'view' => $view,

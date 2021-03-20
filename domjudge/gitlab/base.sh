@@ -21,6 +21,9 @@ cat ~/.my.cnf
 echo "CREATE DATABASE IF NOT EXISTS \`domjudge\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" | mysql
 echo "GRANT SELECT, INSERT, UPDATE, DELETE ON \`domjudge\`.* TO 'domjudge'@'%' IDENTIFIED BY 'domjudge';" | mysql
 
+# Increase max_allowed_packet for following connections.
+echo "SET GLOBAL max_allowed_packet = 100*1024*1024;" | mysql
+
 # Generate a dbpasswords file
 echo "dummy:${MARIADB_PORT_3306_TCP_ADDR}:domjudge:domjudge:domjudge" > etc/dbpasswords.secret
 
@@ -40,7 +43,6 @@ parameters:
     domjudge.logdir: /output/log
     domjudge.rundir: /output/run
     domjudge.tmpdir: /output/tmp
-    domjudge.submitdir: /output/submissions
     domjudge.baseurl: http://localhost/domjudge
     domjudge.submitclient_enabled: yes
 EOF
@@ -53,20 +55,15 @@ echo -e "\033[0m"
 
 # configure, make and install (but skip documentation)
 make configure
-./configure --disable-doc-build --with-baseurl='http://localhost/domjudge/' --with-domjudge-user=domjudge --with-judgehost_chrootdir=${DIR}/chroot/domjudge
-make build-scripts domserver judgehost
-sudo make install-domserver install-judgehost
+./configure --with-baseurl='http://localhost/domjudge/' --with-domjudge-user=domjudge --with-judgehost_chrootdir=${DIR}/chroot/domjudge
+make build-scripts domserver judgehost docs
+sudo make install-domserver install-judgehost install-docs
 
 # setup database and add special user
 cd /opt/domjudge/domserver
 setfacl -m u:www-data:r etc/restapi.secret etc/initial_admin_password.secret \
                         etc/dbpasswords.secret etc/symfony_app.secret
 sudo -u www-data bin/dj_setup_database -uroot -p${MYSQL_ROOT_PASSWORD} -q install
-ADMINPASS=$(cat etc/initial_admin_password.secret)
-echo "INSERT INTO user (userid, username, name, password, teamid) VALUES (3, 'dummy', 'dummy user for example team', '\$2y\$10\$0d0sPmeAYTJ/Ya7rvA.kk.zvHu758ScyuHAjps0A6n9nm3eFmxW2K', 2)" | mysql domjudge
-echo "INSERT INTO userrole (userid, roleid) VALUES (3, 2);" | mysql domjudge
-echo "INSERT INTO userrole (userid, roleid) VALUES (3, 3);" | mysql domjudge
-echo "machine localhost login dummy password dummy" > ~/.netrc
 
 # configure and restart nginx
 sudo rm -f /etc/nginx/sites-enabled/*

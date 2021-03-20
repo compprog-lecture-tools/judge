@@ -4,6 +4,7 @@ namespace App\Controller\API;
 
 use App\Entity\Judging;
 use App\Helpers\JudgingWrapper;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -11,6 +12,7 @@ use Doctrine\ORM\QueryBuilder;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -33,9 +35,10 @@ class JudgementController extends AbstractRestController implements QueryObjectT
     public function __construct(
         EntityManagerInterface $entityManager,
         DOMJudgeService $DOMJudgeService,
+        ConfigurationService $config,
         EventLogService $eventLogService
     ) {
-        parent::__construct($entityManager, $DOMJudgeService, $eventLogService);
+        parent::__construct($entityManager, $DOMJudgeService, $config, $eventLogService);
 
         $verdictsConfig = $this->dj->getDomjudgeEtcDir() . '/verdicts.php';
         $this->verdicts = include $verdictsConfig;
@@ -45,7 +48,7 @@ class JudgementController extends AbstractRestController implements QueryObjectT
      * Get all the judgements for this contest
      * @param Request $request
      * @return \Symfony\Component\HttpFoundation\Response
-     * @IsGranted({"ROLE_JURY", "ROLE_TEAM", "ROLE_JUDGEHOST", "ROLE_API_READER"})
+     * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_TEAM') or is_granted('ROLE_JUDGEHOST') or is_granted('ROLE_API_READER')")
      * @Rest\Get("")
      * @SWG\Response(
      *     response="200",
@@ -61,6 +64,7 @@ class JudgementController extends AbstractRestController implements QueryObjectT
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @SWG\Parameter(
      *     name="result",
      *     in="query",
@@ -86,7 +90,7 @@ class JudgementController extends AbstractRestController implements QueryObjectT
      * @param string $id
      * @return \Symfony\Component\HttpFoundation\Response
      * @throws \Doctrine\ORM\NonUniqueResultException
-     * @IsGranted({"ROLE_JURY", "ROLE_TEAM", "ROLE_JUDGEHOST", "ROLE_API_READER"})
+     * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_TEAM') or is_granted('ROLE_JUDGEHOST') or is_granted('ROLE_API_READER')")
      * @Rest\Get("/{id}")
      * @SWG\Response(
      *     response="200",
@@ -99,6 +103,7 @@ class JudgementController extends AbstractRestController implements QueryObjectT
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $id)
     {
@@ -153,7 +158,7 @@ class JudgementController extends AbstractRestController implements QueryObjectT
             $queryBuilder
                 ->andWhere('s.submittime < c.endtime')
                 ->andWhere('j.valid = 1');
-            if ($this->dj->dbconfig_get('verification_required', false)) {
+            if ($this->config->get('verification_required')) {
                 $queryBuilder->andWhere('j.verified = 1');
             }
         }

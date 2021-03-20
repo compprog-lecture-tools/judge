@@ -5,6 +5,7 @@ namespace App\Controller\API;
 use App\Entity\Contest;
 use App\Entity\ContestProblem;
 use App\Entity\Event;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ImportExportService;
@@ -16,7 +17,9 @@ use JMS\Serializer\Metadata\PropertyMetadata;
 use Metadata\MetadataFactoryInterface;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -44,10 +47,20 @@ class ContestController extends AbstractRestController
     protected $importExportService;
 
     /**
+     * @param EntityManagerInterface $entityManager
+     * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
+     * @param EventLogService        $eventLogService
      * @param ImportExportService    $importExportService
      */
-    public function __construct(EntityManagerInterface $entityManager, DOMJudgeService $dj, EventLogService $eventLogService, ImportExportService $importExportService) {
-        parent::__construct($entityManager, $dj, $eventLogService);
+    public function __construct(
+        EntityManagerInterface $entityManager,
+        DOMJudgeService $dj,
+        ConfigurationService $config,
+        EventLogService $eventLogService,
+        ImportExportService $importExportService
+    ) {
+        parent::__construct($entityManager, $dj, $config, $eventLogService);
         $this->importExportService = $importExportService;
     }
 
@@ -97,6 +110,7 @@ class ContestController extends AbstractRestController
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @throws \Doctrine\ORM\NonUniqueResultException
      */
     public function listAction(Request $request)
@@ -117,6 +131,7 @@ class ContestController extends AbstractRestController
      *     @Model(type=Contest::class)
      * )
      * @SWG\Parameter(ref="#/parameters/cid")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $cid)
     {
@@ -239,7 +254,7 @@ class ContestController extends AbstractRestController
     public function getContestYamlAction(Request $request, string $cid)
     {
         $contest      = $this->getContestWithId($request, $cid);
-        $penalty_time = $this->dj->dbconfig_get('penalty_time', 20);
+        $penalty_time = $this->config->get('penalty_time');
         $response     = new StreamedResponse();
         $response->setCallback(function () use ($contest, $penalty_time) {
             echo "name:                     " . $contest->getName() . "\n";
@@ -290,7 +305,7 @@ class ContestController extends AbstractRestController
      * Get the event feed for the given contest
      * @Rest\Get("/{cid}/event-feed")
      * @SWG\Get(produces={"application/x-ndjson"})
-     * @IsGranted({"ROLE_JURY", "ROLE_API_READER"})
+     * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_API_READER')")
      * @param Request                  $request
      * @param string                   $cid
      * @param MetadataFactoryInterface $metadataFactory
@@ -395,7 +410,7 @@ class ContestController extends AbstractRestController
                     }
                 }
 
-                // Change some specifc endpoints that do not map to our own objects.
+                // Change some specific endpoints that do not map to our own objects.
                 $toCheck['problems'] = ContestProblem::class;
                 $toCheck['groups'] = $toCheck['teamcategories'];
                 $toCheck['organizations'] = $toCheck['teamaffiliations'];
@@ -531,39 +546,7 @@ class ContestController extends AbstractRestController
      */
     public function getStatusAction(Request $request, string $cid)
     {
-        $contest = $this->getContestWithId($request, $cid);
-
-        $result                    = [];
-        $result['num_submissions'] = (int)$this->em
-            ->createQuery(
-                'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                WHERE s.cid = :cid')
-            ->setParameter(':cid', $contest->getCid())
-            ->getSingleScalarResult();
-        $result['num_queued']      = (int)$this->em
-            ->createQuery(
-                'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid AND j.valid != 0)
-                WHERE s.cid = :cid
-                AND j.result IS NULL
-                AND s.valid = 1')
-            ->setParameter(':cid', $contest->getCid())
-            ->getSingleScalarResult();
-        $result['num_judging']     = (int)$this->em
-            ->createQuery(
-                'SELECT COUNT(s)
-                FROM App\Entity\Submission s
-                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid)
-                WHERE s.cid = :cid
-                AND j.result IS NULL
-                AND j.valid = 1
-                AND s.valid = 1')
-            ->setParameter(':cid', $contest->getCid())
-            ->getSingleScalarResult();
-
-        return $result;
+        return $this->dj->getContestStats($this->getContestWithId($request, $cid));
     }
 
     /**

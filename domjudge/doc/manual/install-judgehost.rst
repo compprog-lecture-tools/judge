@@ -4,6 +4,8 @@ Installation of the judgehosts
 A DOMjudge installation requires one or more judgehosts which will perform
 the actual compilation and evaluation of submissions.
 
+.. _judgehost_requirements:
+
 Requirements
 ------------
 
@@ -14,7 +16,7 @@ System requirements
   been tested with Debian and Ubuntu, but should work on other environments.
 * It is necessary that you have root access.
 * A TCP/IP network which connects the DOMserver and the judgehosts.
-  The machines only need HTTP(S) access to the DOMserver. 
+  The machines only need HTTP(S) access to the DOMserver.
 
 
 Software requirements
@@ -28,15 +30,15 @@ For Debian (with some example compilers)::
 
   sudo apt install make sudo debootstrap libcgroup-dev lsof \
         php-cli php-curl php-json php-xml php-zip procps \
-        gcc g++ openjdk-8-jre-headless \
-        openjdk-8-jdk ghc fp-compiler
+        gcc g++ default-jre-headless default-jdk-headless \
+        ghc fp-compiler
 
 For RedHat::
 
   sudo yum install make sudo libcgroup-devel lsof \
         php-cli php-mbstring php-xml php-process procps-ng \
         gcc gcc-c++ glibc-static libstdc++-static \
-        java-1.8.0-openjdk-headless java-1.8.0-openjdk-devel \
+        java-11-openjdk-headless java-11-openjdk-devel \
         ghc-compiler fpc
 
 Building and installing
@@ -54,13 +56,15 @@ to be added to the system that acts as judgehost. This user does not
 need a home-directory or password, so the following command would
 suffice to add a user and group ``domjudge-run`` with minimal privileges::
 
-  useradd -d /nonexistent -U -M -s /bin/false domjudge-run
+  sudo useradd -d /nonexistent -U -M -s /bin/false domjudge-run
 
 Sudo permissions
 ----------------
 
-``Runguard`` needs to be able to become root for certain operations
-like changing to the runuser and performing a chroot. Also, the default
+The judgedaemon uses a wrapper to isolate programs when compiling
+or running the submissions called ``runguard``. This wrapper needs
+to be able to become root for certain operations like changing to the
+runuser and performing a chroot. Also, the default
 ``chroot-startstop.sh`` script uses sudo to gain privileges for
 certain operations. There's a pregenerated snippet
 in ``etc/sudoers-domjudge`` that contains all required rules. You can
@@ -98,21 +102,13 @@ and adapt it to work with your local system. In case you changed the
 default pre-built chroot directory, make sure to also update the sudo
 rules and the ``CHROOTORIGINAL`` variable in ``chroot-startstop.sh``.
 
-When using the default ``chroot-start-stop.sh`` script, a static
-POSIX shell has to be available for copying it into the chroot
-environment. For Linux i386, a static Dash shell is included, which
-works out of the box, also for the Linux Intel/AMD 64 architecture.
-For other architectures or operating systems, a shell has to be added
-manually. Then simply point the ``lib/sh-static`` symlink to this
-file.
-
 Linux Control Groups
 --------------------
 
 DOMjudge uses Linux Control Groups or *cgroups* for process isolation in
 the judgedaemon. Linux cgroups give more accurate measurement of
 actually allocated memory than traditional resource limits (which is
-helpful with interpreters like Java that reserve but not actually use
+helpful with interpreters like Java that reserve but do not actually use
 lots of memory). Also, cgroups are used to restrict network access so
 no separate measures are necessary, and they allow running
 :ref:`multiple judgedaemons <multiple-judgedaemons>`
@@ -132,11 +128,16 @@ added kernel options. On VM hosting providers such as Google Cloud or
 DigitalOcean, ``GRUB_CMDLINE_LINUX_DEFAULT`` may be overwritten
 by other files in ``/etc/default/grub.d/``.
 
-You have now configured the system to use cgroups, but you need to create
-the actual cgroups that DOMjudge will use. For that, you can use the
-script under ``misc-tools/create_cgroups``. Edit the script to
-match your situation first. This script needs to be re-run after each
-boot (there's a systemd unit provided for this purpose).
+You have now configured the system to use cgroups. To create
+the actual cgroups that DOMjudge will use, run::
+
+  sudo systemctl enable create-cgroups --now
+
+Note that this service will automatically be started if you use the
+``domjudge-judgehost`` service, see below. Alternatively, you can
+customize the script ``judge/create_cgroups`` as required and run it
+after each boot.
+
 
 REST API credentials
 --------------------
@@ -150,9 +151,9 @@ On each judgehost, copy from the domserver (or create) a file
 ``etc/restapi.secret`` containing the id, URL,
 username and password whitespace-separated on one line, for example::
 
-  default http://example.edu/domjudge/api/  judgehosts  MzfJYWF5agSlUfmiGEy5mgkfqU
+  default http://example.edu/domjudge/api/  judgehost  MzfJYWF5agSlUfmiGEy5mgkfqU
 
-The password here must be identical to that of the ``judgehosts`` user
+The password here must be identical to that of the ``judgehost`` user
 in the admin web interface. Multiple lines may be specified to allow a
 judgedaemon to work for multiple domservers. The id in the first column
 is used to differentiate between multiple domservers, and should be
@@ -170,3 +171,8 @@ auto-registered and will be by default enabled. If you wish to
 add a new judgehost but have it initially disabled, you can add it
 manually through the DOMjudge web interface and set it to disabled
 before starting the judgedaemon.
+
+The judgedaemon can also be run as a service by running::
+
+  sudo systemctl enable domjudge-judgehost
+  sudo systemctl start  domjudge-judgehost

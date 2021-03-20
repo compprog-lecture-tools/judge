@@ -9,16 +9,20 @@ use App\Entity\Judgehost;
 use App\Entity\Judging;
 use App\Entity\JudgingRun;
 use App\Entity\JudgingRunOutput;
+use App\Entity\Rejudging;
 use App\Entity\Submission;
 use App\Entity\Testcase;
 use App\Entity\User;
 use App\Service\BalloonService;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
+use App\Service\RejudgingService;
 use App\Service\ScoreboardService;
 use App\Service\SubmissionService;
 use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Query;
 use Doctrine\ORM\Query\Expr\Join;
 use FOS\RestBundle\Controller\AbstractFOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
@@ -48,6 +52,11 @@ class JudgehostController extends AbstractFOSRestController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
@@ -68,14 +77,21 @@ class JudgehostController extends AbstractFOSRestController
     protected $balloonService;
 
     /**
+     * @var RejudgingService
+     */
+    protected $rejudgingService;
+
+    /**
      * @var LoggerInterface
      */
     protected $logger;
 
     /**
      * JudgehostController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EventLogService        $eventLogService
      * @param ScoreboardService      $scoreboardService
      * @param SubmissionService      $submissionService
@@ -85,18 +101,22 @@ class JudgehostController extends AbstractFOSRestController
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         ScoreboardService $scoreboardService,
         SubmissionService $submissionService,
         BalloonService $balloonService,
+        RejudgingService $rejudgingService,
         LoggerInterface $logger
     ) {
         $this->em                = $em;
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->eventLogService   = $eventLogService;
         $this->scoreboardService = $scoreboardService;
         $this->submissionService = $submissionService;
         $this->balloonService    = $balloonService;
+        $this->rejudgingService  = $rejudgingService;
         $this->logger            = $logger;
     }
 
@@ -287,67 +307,20 @@ class JudgehostController extends AbstractFOSRestController
             return '';
         }
 
-        // Get all active contests
-        $contests   = $this->dj->getCurrentContests();
-        $contestIds = array_map(function (Contest $contest) {
-            return $contest->getCid();
-        }, $contests);
-
-        // If there are no active contests, there is nothing to do
-        if (empty($contestIds)) {
-            return '';
-        }
-
-        // Determine all viable submissions
-        $queryBuilder = $this->em->createQueryBuilder()
-            ->from(Submission::class, 's')
-            ->join('s.team', 't')
-            ->join('s.language', 'l')
-            ->join('s.contest_problem', 'cp')
-            ->select('s')
-            ->andWhere('s.judgehost IS NULL')
-            ->andWhere('s.cid IN (:contestIds)')
-            ->setParameter(':contestIds', $contestIds)
-            ->andWhere('l.allowJudge= 1')
-            ->andWhere('cp.allowJudge = 1')
-            ->andWhere('s.valid = 1')
-            ->orderBy('t.judging_last_started', 'ASC')
-            ->addOrderBy('s.submittime', 'ASC')
-            ->addOrderBy('s.submitid', 'ASC');
-
-        // Apply restrictions
+        $restrictJudgingOnSameJudgehost = false;
         if ($judgehost->getRestriction()) {
             $restrictions = $judgehost->getRestriction()->getRestrictions();
-
-            if (isset($restrictions['contest'])) {
-                $queryBuilder
-                    ->andWhere('s.cid IN (:restrictionContestIds)')
-                    ->setParameter(':restrictionContestIds', $restrictions['contest']);
-            }
-
-            if (isset($restrictions['problem'])) {
-                $queryBuilder
-                    ->andWhere('s.probid IN (:restrictionProblemIds)')
-                    ->setParameter(':restrictionProblemIds', $restrictions['problem']);
-            }
-
-            if (isset($restrictions['language'])) {
-                $queryBuilder
-                    ->andWhere('s.langid IN (:restrictionLanguageIds)')
-                    ->setParameter(':restrictionLanguageIds', $restrictions['language']);
-            }
-
             if (isset($restrictions['rejudge_own']) && (bool)$restrictions['rejudge_own'] == false) {
-                $queryBuilder
-                    ->leftJoin('s.judgings', 'j', Join::WITH, 'j.judgehost = :judgehost')
-                    ->andWhere('j.judgehost IS NULL')
-                    ->setParameter(':judgehost', $judgehost->getHostname());
+                $restrictJudgingOnSameJudgehost = true;
             }
         }
 
         /** @var Submission[] $submissions */
-        $submissions = $queryBuilder->getQuery()->getResult();
-
+        $submissions = $this->getSubmissionsToJudge($judgehost, $restrictJudgingOnSameJudgehost);
+        if (empty($submissions)) {
+            // Relax the restriction to judge on a different judgehost to not block judging.
+            $submissions = $this->getSubmissionsToJudge($judgehost, false);
+        }
         $numUpdated = 0;
 
         // Pick first submission
@@ -401,16 +374,16 @@ class JudgehostController extends AbstractFOSRestController
 
         // Merge defaults
         if (empty($result['memlimit'])) {
-            $result['memlimit'] = $this->dj->dbconfig_get('memory_limit');
+            $result['memlimit'] = $this->config->get('memory_limit');
         }
         if (empty($result['outputlimit'])) {
-            $result['outputlimit'] = $this->dj->dbconfig_get('output_limit');
+            $result['outputlimit'] = $this->config->get('output_limit');
         }
         if (empty($result['compare'])) {
-            $result['compare'] = $this->dj->dbconfig_get('default_compare');
+            $result['compare'] = $this->config->get('default_compare');
         }
         if (empty($result['run'])) {
-            $result['run'] = $this->dj->dbconfig_get('default_run');
+            $result['run'] = $this->config->get('default_run');
         }
 
         // Add executable MD5's
@@ -604,8 +577,10 @@ class JudgehostController extends AbstractFOSRestController
                     $this->dj->auditlog('judging', $judgingId, 'judged',
                                         'compiler-error', $hostname, $contestId);
 
-                    if (!$this->dj->dbconfig_get('verification_required', false) &&
-                        $judging->getRejudgingid() === null) {
+                    $this->maybeUpdateActiveJudging($judging);
+                    $this->em->flush();
+                    if (!$this->config->get('verification_required') &&
+                        $judging->getValid()) {
                         $this->eventLogService->log('judging', $judgingId,
                                                     EventLogService::ACTION_UPDATE, $contestId);
                     }
@@ -998,8 +973,8 @@ class JudgehostController extends AbstractFOSRestController
         /** @var Testcase $testCase */
         $testCase = $this->em->getRepository(Testcase::class)->find($testCaseId);
 
-        $resultsRemap = $this->dj->dbconfig_get('results_remap');
-        $resultsPrio  = $this->dj->dbconfig_get('results_prio');
+        $resultsRemap = $this->config->get('results_remap');
+        $resultsPrio  = $this->config->get('results_prio');
 
         if (array_key_exists($runResult, $resultsRemap)) {
             $this->logger->info('Testcase %d remapping result %s -> %s',
@@ -1034,10 +1009,11 @@ class JudgehostController extends AbstractFOSRestController
                 ->setOutputSystem(base64_decode($outputSystem))
                 ->setMetadata(base64_decode($metadata));
 
+            $this->maybeUpdateActiveJudging($judging);
             $this->em->persist($judgingRun);
             $this->em->flush();
 
-            if ($judging->getRejudgingid() === null) {
+            if ($judging->getValid()) {
                 $this->eventLogService->log('judging_run', $judgingRun->getRunid(),
                                             EventLogService::ACTION_CREATE, $judging->getCid());
             }
@@ -1046,6 +1022,7 @@ class JudgehostController extends AbstractFOSRestController
         // Reload the testcase and judging, as EventLogService::log will clear the entity manager.
         // For the judging, also load in the submission and some of it's relations
         $testCase = $this->em->getRepository(Testcase::class)->find($testCaseId);
+        /** @var Judging $judging */
         $judging  = $this->em->createQueryBuilder()
             ->from(Judging::class, 'j')
             ->join('j.submission', 's')
@@ -1087,7 +1064,7 @@ class JudgehostController extends AbstractFOSRestController
 
         if (($result = $this->submissionService->getFinalResult($allRuns, $resultsPrio)) !== null) {
             // Lookup global lazy evaluation of results setting and possible problem specific override.
-            $lazyEval    = $this->dj->dbconfig_get('lazy_eval_results', true);
+            $lazyEval    = $this->config->get('lazy_eval_results');
             $problemLazy = $judging->getSubmission()->getContestProblem()->getLazyEvalResults();
             if (isset($problemLazy)) {
                 $lazyEval = $problemLazy;
@@ -1098,6 +1075,7 @@ class JudgehostController extends AbstractFOSRestController
                 // NOTE: setting endtime here determines in testcases_GET
                 // whether a next testcase will be handed out.
                 $judging->setEndtime(Utils::now());
+                $this->maybeUpdateActiveJudging($judging);
             }
             $this->em->flush();
 
@@ -1125,8 +1103,8 @@ class JudgehostController extends AbstractFOSRestController
                 // Log to event table if no verification required
                 // (case of verification required is handled in
                 // jury/SubmissionController::verifyAction)
-                if (!$this->dj->dbconfig_get('verification_required', false)) {
-                    if ($judging->getRejudgingid() === null) {
+                if (!$this->config->get('verification_required')) {
+                    if ($judging->getValid()) {
                         $this->eventLogService->log('judging', $judging->getJudgingid(),
                                                     EventLogService::ACTION_UPDATE,
                                                     $judging->getCid());
@@ -1142,9 +1120,134 @@ class JudgehostController extends AbstractFOSRestController
         }
 
         // Send an event for an endtime update if not done yet.
-        if ($judging->getRejudgingid() === null && count($runs) == $numTestCases && empty($justFinished)) {
+        if ($judging->getValid() && count($runs) == $numTestCases && empty($justFinished)) {
             $this->eventLogService->log('judging', $judging->getJudgingid(),
                                         EventLogService::ACTION_UPDATE, $judging->getCid());
         }
+    }
+
+    private function maybeUpdateActiveJudging(Judging $judging): void
+    {
+        if ($judging->getRejudgingid() !== null) {
+            $rejudging = $judging->getRejudging();
+            if ($rejudging->getAutoApply()) {
+                $judging->getSubmission()->setRejudging(null);
+                foreach ($judging->getSubmission()->getJudgings() as $j) {
+                    $j->setValid(false);
+                }
+                $judging->setValid(true);
+
+                // Check whether we are completely done with this rejudging.
+                if ($rejudging->getEndtime() === null && $this->rejudgingService->calculateTodo($rejudging)['todo'] == 0) {
+                    $rejudging->setEndtime(Utils::now());
+                    $rejudging->setFinishUser(null);
+                    $this->em->flush();
+                }
+            }
+
+            if ($rejudging->getRepeat() > 1 && $rejudging->getEndtime() === null
+                    && $this->rejudgingService->calculateTodo($rejudging)['todo'] == 0) {
+                $numberOfRepetitions = $this->em->createQueryBuilder()
+                    ->from(Rejudging::class, 'r')
+                    ->select('COUNT(r.rejudgingid) AS cnt')
+                    ->andWhere('r.repeat_rejudgingid = :repeat_rejudgingid')
+                    ->setParameter('repeat_rejudgingid', $rejudging->getRepeatRejudgingId())
+                    ->getQuery()
+                    ->getSingleScalarResult();
+                // Only "cancel" the rejudging if it's not the last.
+                if ($numberOfRepetitions < $rejudging->getRepeat()) {
+                    $rejudging
+                        ->setEndtime(Utils::now())
+                        ->setFinishUser(null)
+                        ->setValid(false);
+                    $this->em->flush();
+
+                    // Reset association before creating the new rejudging.
+                    $this->em->getConnection()->executeQuery(
+                        'UPDATE submission
+                            SET rejudgingid = NULL
+                            WHERE rejudgingid = :rejudgingid',
+                        [':rejudgingid' => $rejudging->getRejudgingid()]);
+                    $this->em->flush();
+
+                    $skipped = [];
+                    /** @var array[] $judgings */
+                    $judgings = $this->em->createQueryBuilder()
+                        ->from(Judging::class, 'j')
+                        ->leftJoin('j.submission', 's')
+                        ->select('j', 's')
+                        ->andWhere('j.rejudgingid = :rejudgingid')
+                        ->setParameter('rejudgingid', $rejudging->getRejudgingid())
+                        ->getQuery()
+                        ->getResult(Query::HYDRATE_ARRAY);
+                    $this->rejudgingService->createRejudging($rejudging->getReason(), $judgings,
+                        false, $rejudging->getRepeat(), $rejudging->getRepeatRejudgingId(), $skipped);
+                }
+            }
+        }
+    }
+
+    private function getSubmissionsToJudge(Judgehost $judgehost, $restrictJudgingOnSameJudgehost)
+    {
+        // Get all active contests
+        $contests   = $this->dj->getCurrentContests();
+        $contestIds = array_map(function (Contest $contest) {
+            return $contest->getCid();
+        }, $contests);
+
+        // If there are no active contests, there is nothing to do
+        if (empty($contestIds)) {
+            return [];
+        }
+
+        // Determine all viable submissions
+        $queryBuilder = $this->em->createQueryBuilder()
+            ->from(Submission::class, 's')
+            ->join('s.team', 't')
+            ->join('s.language', 'l')
+            ->join('s.contest_problem', 'cp')
+            ->select('s')
+            ->andWhere('s.judgehost IS NULL')
+            ->andWhere('s.cid IN (:contestIds)')
+            ->setParameter(':contestIds', $contestIds)
+            ->andWhere('l.allowJudge= 1')
+            ->andWhere('cp.allowJudge = 1')
+            ->andWhere('s.valid = 1')
+            ->orderBy('t.judging_last_started', 'ASC')
+            ->addOrderBy('s.submittime', 'ASC')
+            ->addOrderBy('s.submitid', 'ASC');
+
+        // Apply restrictions
+        if ($judgehost->getRestriction()) {
+            $restrictions = $judgehost->getRestriction()->getRestrictions();
+
+            if (isset($restrictions['contest'])) {
+                $queryBuilder
+                    ->andWhere('s.cid IN (:restrictionContestIds)')
+                    ->setParameter(':restrictionContestIds', $restrictions['contest']);
+            }
+
+            if (isset($restrictions['problem'])) {
+                $queryBuilder
+                    ->andWhere('s.probid IN (:restrictionProblemIds)')
+                    ->setParameter(':restrictionProblemIds', $restrictions['problem']);
+            }
+
+            if (isset($restrictions['language'])) {
+                $queryBuilder
+                    ->andWhere('s.langid IN (:restrictionLanguageIds)')
+                    ->setParameter(':restrictionLanguageIds', $restrictions['language']);
+            }
+        }
+        if ($restrictJudgingOnSameJudgehost) {
+            $queryBuilder
+                ->leftJoin('s.judgings', 'j', Join::WITH, 'j.judgehost = :judgehost')
+                ->andWhere('j.judgehost IS NULL')
+                ->setParameter(':judgehost', $judgehost->getHostname());
+        }
+
+        /** @var Submission[] $submissions */
+        $submissions = $queryBuilder->getQuery()->getResult();
+        return $submissions;
     }
 }

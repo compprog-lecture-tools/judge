@@ -14,7 +14,7 @@ follows:
   `public/images/countries/XXX.png` with *XXX* being the country code.
   You can replace them if you want different flags.
 - *Affiliation logos*: these will be shown with the teams that are
-  part of the affilation, if the ``show_affiliation_logos`` configuration
+  part of the affiliation, if the ``show_affiliation_logos`` configuration
   option is enabled. They can be placed in
   `public/images/affiliations/1234.png` where *1234* is the numeric ID
   of the affiliation as shown in the DOMjudge interface. There is a
@@ -31,15 +31,21 @@ follows:
   The IDs for affiliations and teams need to be the *external ID*
   if the ``data_source`` setting of DOMjudge is set to external.
 
+.. _authentication:
+
 Authentication and registration
 -------------------------------
 Out of the box users are able to authenticate using username and password.
 
-Two other authentication methods are available:
+Two other native authentication methods are available:
 
 - IP Address - authenticates users based on the IP address they are accessing
   the system from;
 - X-Headers - authenticates users based on some HTTP header values.
+
+Besides this, DOMjudge can be configured with any provider that can set
+the environment variable ``REMOTE_USER`` to an existing username,
+for example LDAP, SAML, CAS or OpenID connect modules for Apache.
 
 There's an option to let teams register themselves in the system.
 
@@ -53,7 +59,9 @@ associated with their account, and subsequent logins will allow them to log
 in without authenticating.
 
 If desired, you can edit or pre-fill the IP address associated with an
-account from the Users page.
+account from the Users page. When using IPv6, ensure that you enter the
+address in the exact representation as the webserver reports it (e.g.
+as visible in the webserver logs) - no canonicalization is performed.
 
 X-Headers
 `````````
@@ -75,13 +83,52 @@ Squid configuration for this might look like::
   request_header_add X-DOMjudge-Login "$USERNAME" autologin
   request_header_add X-DOMjudge-Pass "$BASE64_PASSWORD" autologin
 
+Using REMOTE-USER
+`````````````````
+DOMjudge supports generic authentication by various existing providers that
+can authenticate a user and set the ``REMOTE_USER`` environment variable
+to the authenticated username.
+
+Examples of this are several Apache modules: mod LDAP, Shibboleth or
+Mod Mellon for SAML 2.0, mod Auth CAS, mod OpenID Connect, or mod Kerb for
+Kerberos.
+
+This does not currently allow for auto-provisioning or self-registration,
+the users must already exist in DOMjudge and their DOMjudge username must
+match what is in the ``REMOTE_USER`` variable.
+
+Set up the respective module to authenticate incoming users for the URL
+path of your installation. Then, in ``webapp/config/packages/security.yaml``
+change the ``main`` section of your source tree to add a ``remote_user``
+key after ``form_login`` that looks like this::
+
+         main:
+             pattern: ^/
+             …
+             form_login:
+                 login_path: login
+                 check_path: login
+                 csrf_token_generator: security.csrf.token_manager
+                 use_referer: true
+             remote_user:
+                 provider: domjudge_db_provider
+
+And re-run the "make install" command to deploy this change.
+Or alternatively remove the entire ``var/cache/prod/`` directory when
+editing ``security.yaml`` on an already deployed location.
+
+If the thus authenticated user is not found in DOMjudge, the application
+will present the standard username/password login screen as a fallback.
+
 Self-registration
 `````````````````
-There is also a configuration option to allow teams to self-register with
-the system: ``registration_category_name``. When left empty, no self-registration
-is allowed; when filled with a category name, newly registered teams will
-be placed in this category. During registration, a team can specify their
-affiliation.
+Teams can be allowed to self-register with the system. Each team category can
+be set to allow registration or not. When none of the categories are set to
+allow, self-registration is disabled. When one category is set to allow,
+self-registration is enabled and newly registered teams will be placed in this
+category. When multiple categories are set to allow, teams can choose one of
+them during registration. Teams can also specify their affiliation during
+registration, if the global configuration option 'show affiliations' is enabled.
 
 Executables
 -----------
@@ -146,8 +193,8 @@ Compare scripts/programs should follow the
 <https://www.problemarchive.org/wiki/index.php/Output_validator>`_.
 DOMjudge uses the `default output validator
 <https://www.problemarchive.org/wiki/index.php/Problem_Format#Output_Validators>`_
-specified there as its default, which can be found at
-https://github.com/Kattis/problemtools/blob/master/support/default_validator/.
+specified there as its default, which can be found at the
+`problemtools GitHub <https://github.com/Kattis/problemtools/blob/master/support/default_validator/>`_.
 
 Note that DOMjudge only supports a subset of the functionality
 described there. In particular, the calling syntax is::
@@ -156,16 +203,15 @@ described there. In particular, the calling syntax is::
 
 where ``testdata.in`` ``testdata.ans`` are the jury
 reference input and output files, ``feedbackdir`` the directory
-containing e.g. the judging response file ``judgemessage.txt`` to
-be written to (the only other permitted files there
-are ``teammessage.txt score.txt judgeerror.txt diffposition.txt``,
+containing the judging response files ``judgemessage.txt``
+and ``judgeerror.txt``,
 ``compare_args`` a list of arguments that can set when
 configuring a contest problem, and ``program.out`` the team's
 output. The validator program should not make any assumptions on its
 working directory.
 
 For more details on writing and modifying a compare (or validator)
-scripts, see the ``boolfind_cmp`` example and the comments at the
+script, see the ``boolfind_cmp`` example and the comments at the
 top of the file ``testcase_run.sh``.
 
 Run programs
@@ -174,7 +220,7 @@ Special run programs can be used, for example, to create an interactive
 problem, where the contestants' program exchanges information with a
 jury program and receives data depending on its own output. The
 problem ``boolfind`` is included as an example interactive
-problem, see ``docs/examples/boolfind.pdf`` for the description.
+problem, see ``doc/examples/boolfind.pdf`` for the description.
 
 Usage is similar to compare programs: you can either create a program
 ``run`` yourself, or use the provided wrapper script, which
@@ -199,6 +245,7 @@ must probably also be created, so the exact data written to
 correctness of the contestants' program can be deduced from the
 contents by the compare program.
 
+.. _printing:
 
 Printing
 --------

@@ -143,8 +143,9 @@
                             {% if score.team.affiliation.country %}
                                 {% set countryFlag = 'images/countries/' ~ score.team.affiliation.country ~ '.png' %}
                                 {% if countryFlag | assetExists %}
-                                    <img src="{{ asset(countryFlag) }}" alt="{{ alpha3_countries[score.team.affiliation.country] }}"
-                                         title="{{ alpha3_countries[score.team.affiliation.country] }}" class="countryflag"/>
+                                    <img loading="lazy" class="countryflag"
+                                         src="{{ asset(countryFlag) }}" alt="{{ alpha3_countries[score.team.affiliation.country] }}"
+                                         title="{{ alpha3_countries[score.team.affiliation.country] }}">
                                 {% else %}
                                     {{ alpha3_countries[score.team.affiliation.country] }}
                                 {% endif %}
@@ -167,8 +168,9 @@
                             {% endif %}
                             {% set affiliationImage = 'images/affiliations/' ~ affiliationId ~ '.png' %}
                             {% if affiliationImage | assetExists %}
-                                <img src="{{ asset(affiliationImage) }}" alt="{{ score.team.affiliation.name }}"
-                                     title="{{ score.team.affiliation.name }}" class="affiliation-logo">
+                                <img loading="lazy" class="affiliation-logo"
+                                     src="{{ asset(affiliationImage) }}" alt="{{ score.team.affiliation.name }}"
+                                     title="{{ score.team.affiliation.name }}">
                             {% else %}
                                 {{ affiliationId }}
                             {% endif %}
@@ -183,7 +185,7 @@
                 {% set colorClass = color | replace({"#": "_"}) %}
                 {% set backgroundColors = backgroundColors | merge({(color): 1}) %}
             {% endif %}
-            <td class="scoretn cl{{ colorClass }}" title="{{ score.team.name }}">
+            <td class="scoretn cl{{ colorClass }}" title="{{ score.team.effectiveName }}">
                 {% set link = null %}
                 {% set extra = null %}
                 {% if not static %}
@@ -204,7 +206,7 @@
                             {{ score.team.category.name }}
                         </span>
                         {% endif %}
-                        {{ score.team.name }}
+                        {{ score.team.effectiveName }}
                     </span>
                     {% if showAffiliations %}
                         <span class="univ forceWidth">
@@ -219,7 +221,7 @@
             {% if scoreInSeconds %}
                 {% set totalTime = totalTime | printTimeRelative %}
             {% endif %}
-            {% set totalPoints = score.numberOfPoints %}
+            {% set totalPoints = score.numPoints %}
             <td class="scorenc">{{ totalPoints }}</td>
             {% if scoreboard.getOrderByRuntime() %}
                 <td class="scorett">{{ score.totalRuntime * 1000 }} ms</td>
@@ -240,15 +242,15 @@
                         {% if scoreboard.getOrderByRuntime() and scoreboard.isFastestImplementation(score.team, problem) %}
                                 {% set scoreCssClass = scoreCssClass ~ ' score_first' %}
                         {% endif %}
-                    {% elseif showPending and matrixItem.numberOfPendingSubmissions > 0 %}
+                    {% elseif showPending and matrixItem.numSubmissionsPending > 0 %}
                         {% set scoreCssClass = 'score_pending' %}
-                    {% elseif matrixItem.numberOfSubmissions > 0 %}
+                    {% elseif matrixItem.numSubmissions > 0 %}
                         {% set scoreCssClass = 'score_incorrect' %}
                     {% endif %}
 
-                    {% set numberOfSubmissions = matrixItem.numberOfSubmissions %}
-                    {% if showPending and matrixItem.numberOfPendingSubmissions > 0 %}
-                        {% set numberOfSubmissions = numberOfSubmissions ~ ' + ' ~ matrixItem.numberOfPendingSubmissions %}
+                    {% set numSubmissions = matrixItem.numSubmissions %}
+                    {% if showPending and matrixItem.numSubmissionsPending > 0 %}
+                        {% set numSubmissions = numSubmissions ~ ' + ' ~ matrixItem.numSubmissionsPending %}
                     {% endif %}
 
                     {# If correct, print time scored. The format will vary depending on the scoreboard resolution setting #}
@@ -257,8 +259,8 @@
                         {% set time = matrixItem.time %}
                         {% if scoreInSeconds %}
                             {% set time = time | scoreTime | printTimeRelative %}
-                            {% if matrixItem.numberOfSubmissions > 1 %}
-                                {% set time = time ~ ' + ' ~ (calculatePenaltyTime(true, matrixItem.numberOfSubmissions) | printTimeRelative) %}
+                            {% if matrixItem.numSubmissions > 1 %}
+                                {% set time = time ~ ' + ' ~ (calculatePenaltyTime(true, matrixItem.numSubmissions) | printTimeRelative) %}
                             {% endif %}
                         {% else %}
                             {% set time = time | scoreTime %}
@@ -271,13 +273,13 @@
                         {% set link = path('jury_team', {teamId: score.team.teamid, restrict: restrict}) %}
                     {% endif %}
 
-                    {% set runtime = 1000 * scoreboard.matrix[score.team.teamid][problem.probid].getRuntime() %}
+                    {% set runtime = 1000 * scoreboard.matrix[score.team.teamid][problem.probid].runtime %}
                     {% if not scoreboard.matrix[score.team.teamid][problem.probid].isCorrect %}
                         {% set runtime = '&nbsp;' %}
                     {% endif %}
 
                     <td class="score_cell">
-                        {% if numberOfSubmissions != '0' %}
+                        {% if numSubmissions != '0' %}
                             <a {% if link %}href="{{ link }}"{% endif %}>
                                 <div class="{{ scoreCssClass }}">
                                     {% if scoreboard.getOrderByRuntime() %}
@@ -289,10 +291,10 @@
                                         {{ time | raw }}
                                     {% endif %}
                                     <span>
-                                    {% if numberOfSubmissions is same as(1) %}
+                                    {% if numSubmissions is same as(1) %}
                                         1 try
                                     {% else %}
-                                        {{ numberOfSubmissions }} tries
+                                        {{ numSubmissions }} tries
                                     {% endif %}
                                     </span>
                                 </div>

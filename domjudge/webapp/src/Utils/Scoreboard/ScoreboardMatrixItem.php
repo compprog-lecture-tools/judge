@@ -7,44 +7,44 @@ class ScoreboardMatrixItem
     /**
      * @var bool
      */
-    protected $isCorrect;
+    public $isCorrect;
 
     /**
      * @var bool
      */
-    protected $isFirst;
+    public $isFirst;
 
     /**
      * @var int
      */
-    protected $numberOfSubmissions;
+    public $numSubmissions;
 
     /**
      * @var int
      */
-    protected $numberOfPendingSubmissions;
+    public $numSubmissionsPending;
 
     /**
      * @var float|string
      */
-    protected $time;
+    public $time;
 
     /**
      * @var int
      */
-    protected $penaltyTime;
+    public $penaltyTime;
 
     /**
      * @var float
      */
-    protected $runtime;
+    public $runtime;
 
     /**
      * ScoreboardMatrixItem constructor.
      * @param bool $isCorrect
      * @param bool $isFirst
-     * @param int $numberOfSubmissions
-     * @param int $numberOfPendingSubmissions
+     * @param int $numSubmissions
+     * @param int $numSubmissionsPending
      * @param float|string $time
      * @param int $penaltyTime
      * @param float $runtime
@@ -52,74 +52,18 @@ class ScoreboardMatrixItem
     public function __construct(
         bool $isCorrect,
         bool $isFirst,
-        int $numberOfSubmissions,
-        int $numberOfPendingSubmissions,
+        int $numSubmissions,
+        int $numSubmissionsPending,
         $time,
         int $penaltyTime,
         float $runtime
     ) {
-        $this->isCorrect                  = $isCorrect;
-        $this->isFirst                    = $isFirst;
-        $this->numberOfSubmissions        = $numberOfSubmissions;
-        $this->numberOfPendingSubmissions = $numberOfPendingSubmissions;
-        $this->time                       = $time;
-        $this->penaltyTime                = $penaltyTime;
-        $this->runtime                    = $runtime;
-    }
-
-    /**
-     * @return bool
-     */
-    public function isCorrect(): bool
-    {
-        return $this->isCorrect;
-    }
-
-    /**
-     * @return bool
-     */
-    public function isFirst(): bool
-    {
-        return $this->isFirst;
-    }
-
-    /**
-     * @return int
-     */
-    public function getNumberOfSubmissions(): int
-    {
-        return $this->numberOfSubmissions;
-    }
-
-    /**
-     * @return int
-     */
-    public function getNumberOfPendingSubmissions(): int
-    {
-        return $this->numberOfPendingSubmissions;
-    }
-
-    /**
-     * @return string|float
-     */
-    public function getTime()
-    {
-        return $this->time;
-    }
-
-    /**
-     * @return int
-     */
-    public function getPenaltyTime(): int
-    {
-        return $this->penaltyTime;
-    }
-
-    /**
-     * @return float
-     */
-    public function getRuntime()
-    {
-        return $this->runtime;
+        $this->isCorrect             = $isCorrect;
+        $this->isFirst               = $isFirst;
+        $this->numSubmissions        = $numSubmissions;
+        $this->numSubmissionsPending = $numSubmissionsPending;
+        $this->time                  = $time;
+        $this->penaltyTime           = $penaltyTime;
+        $this->runtime               = $runtime;
     }
 }

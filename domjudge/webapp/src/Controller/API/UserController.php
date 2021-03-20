@@ -3,6 +3,7 @@
 namespace App\Controller\API;
 
 use App\Entity\User;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ImportExportService;
@@ -13,6 +14,7 @@ use Exception;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
@@ -35,10 +37,20 @@ class UserController extends AbstractRestController
     protected $importExportService;
 
     /**
+     * @param EntityManagerInterface $entityManager
+     * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
+     * @param EventLogService        $eventLogService
      * @param ImportExportService    $importExportService
      */
-    public function __construct(EntityManagerInterface $entityManager, DOMJudgeService $dj, EventLogService $eventLogService, ImportExportService $importExportService) {
-        parent::__construct($entityManager, $dj, $eventLogService);
+    public function __construct(
+        EntityManagerInterface $entityManager,
+        DOMJudgeService $dj,
+        ConfigurationService $config,
+        EventLogService $eventLogService,
+        ImportExportService $importExportService
+    ) {
+        parent::__construct($entityManager, $dj, $config, $eventLogService);
         $this->importExportService = $importExportService;
     }
 
@@ -53,24 +65,75 @@ class UserController extends AbstractRestController
      *     name="tsv",
      *     in="formData",
      *     type="file",
-     *     required=true,
+     *     required=false,
      *     description="The groups.tsv files to import."
+     * )
+     * @SWG\Parameter(
+     *     name="json",
+     *     in="formData",
+     *     type="file",
+     *     required=false,
+     *     description="The groups.json files to import."
      * )
      * @SWG\Response(
      *     response="200",
      *     description="Returns a (currently meaningless) status message.",
      * )
-     * @throws BadRequestHttpException
+     * @throws Exception
      */
-    public function addGroupAction(Request $request)
+    public function addGroupsAction(Request $request)
     {
         /** @var UploadedFile $tsvFile */
         $tsvFile = $request->files->get('tsv') ?: [];
-        if ($this->importExportService->importTsv('groups', $tsvFile, $message)) {
+        /** @var UploadedFile $jsonFile */
+        $jsonFile = $request->files->get('json') ?: [];
+        if ((!$tsvFile && !$jsonFile) || ($tsvFile && $jsonFile)) {
+            throw new BadRequestHttpException('Supply exactly one of \'json\' or \'tsv\'');
+        }
+        $message = null;
+        if ($tsvFile && ($result = $this->importExportService->importTsv('groups', $tsvFile, $message))) {
             // TODO: better return all groups here
-            return "New groups successfully added.";
+            return "$result new group(s) successfully added.";
+        } elseif ($jsonFile && ($result = $this->importExportService->importJson('groups', $jsonFile, $message))) {
+            // TODO: better return all groups here
+            return "$result new group(s) successfully added.";
         } else {
             throw new BadRequestHttpException("Error while adding groups: $message");
+        }
+    }
+
+    /**
+     * Add one or more organizations.
+     *
+     * @param Request $request
+     *
+     * @return string
+     * @Rest\Post("/organizations")
+     * @IsGranted("ROLE_ADMIN")
+     * @SWG\Post(consumes={"multipart/form-data"})
+     * @SWG\Parameter(
+     *     name="json",
+     *     in="formData",
+     *     type="file",
+     *     required=true,
+     *     description="The organizations.json files to import."
+     * )
+     * @SWG\Response(
+     *     response="200",
+     *     description="Returns a (currently meaningless) status message.",
+     * )
+     * @throws Exception
+     */
+    public function addOrganizationsAction(Request $request)
+    {
+        /** @var UploadedFile $jsonFile */
+        $jsonFile = $request->files->get('json') ?: [];
+        $message = null;
+        if ($result = $this->importExportService->importJson('organizations', $jsonFile, $message)) {
+            // TODO: better return all organizations here
+            return "$result new organization(s) successfully added.";
+        } else {
+            throw new BadRequestHttpException("Error while adding organizations: $message");
         }
     }
 
@@ -85,22 +148,38 @@ class UserController extends AbstractRestController
      *     name="tsv",
      *     in="formData",
      *     type="file",
-     *     required=true,
-     *     description="The teams2.tsv files to import."
+     *     required=false,
+     *     description="The teams.tsv files to import."
+     * )
+     * @SWG\Parameter(
+     *     name="json",
+     *     in="formData",
+     *     type="file",
+     *     required=false,
+     *     description="The teams.json files to import."
      * )
      * @SWG\Response(
      *     response="200",
      *     description="Returns a (currently meaningless) status message.",
      * )
-     * @throws BadRequestHttpException
+     * @throws Exception
      */
     public function addTeamsAction(Request $request)
     {
         /** @var UploadedFile $tsvFile */
         $tsvFile = $request->files->get('tsv') ?: [];
-        if ($this->importExportService->importTsv('teams', $tsvFile, $message)) {
+        /** @var UploadedFile $jsonFile */
+        $jsonFile = $request->files->get('json') ?: [];
+        if ((!$tsvFile && !$jsonFile) || ($tsvFile && $jsonFile)) {
+            throw new BadRequestHttpException('Supply exactly one of \'json\' or \'tsv\'');
+        }
+        $message = null;
+        if ($tsvFile && ($result = $this->importExportService->importTsv('teams', $tsvFile, $message))) {
             // TODO: better return all teams here?
-            return "New teams successfully added.";
+            return "$result new team(s) successfully added.";
+        } elseif ($jsonFile && ($result = $this->importExportService->importJson('teams', $jsonFile, $message))) {
+            // TODO: better return all teams here?
+            return "$result new team(s) successfully added.";
         } else {
             throw new BadRequestHttpException("Error while adding teams: $message");
         }
@@ -124,7 +203,6 @@ class UserController extends AbstractRestController
      *     response="200",
      *     description="Returns a (currently meaningless) status message.",
      * )
-     * @throws BadRequestHttpException
      * @throws Exception
      */
     public function addAccountsAction(Request $request)
@@ -134,7 +212,7 @@ class UserController extends AbstractRestController
         $ret = $this->importExportService->importTsv('accounts', $tsvFile, $message);
         if ($ret >= 0) {
             // TODO: better return all teams here?
-            return "$ret new accounts added successfully.";
+            return "$ret new account(s) added successfully.";
         } else {
             throw new BadRequestHttpException("Error while adding accounts: $message");
         }
@@ -145,7 +223,7 @@ class UserController extends AbstractRestController
      * @param Request $request
      * @return Response
      * @Rest\Get("")
-     * @IsGranted({"ROLE_ADMIN", "ROLE_API_READER"})
+     * @Security("is_granted('ROLE_ADMIN') or is_granted('ROLE_API_READER')")
      * @SWG\Response(
      *     response="200",
      *     description="Returns all the users for this contest",
@@ -175,7 +253,7 @@ class UserController extends AbstractRestController
      * @return Response
      * @throws NonUniqueResultException
      * @Rest\Get("/{id}")
-     * @IsGranted({"ROLE_ADMIN", "ROLE_API_READER"})
+     * @Security("is_granted('ROLE_ADMIN') or is_granted('ROLE_API_READER')")
      * @SWG\Response(
      *     response="200",
      *     description="Returns the given user",

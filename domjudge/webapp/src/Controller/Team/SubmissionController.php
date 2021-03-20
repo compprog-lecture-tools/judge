@@ -8,9 +8,11 @@ use App\Entity\Problem;
 use App\Entity\Submission;
 use App\Entity\Testcase;
 use App\Form\Type\SubmitProblemType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\SubmissionService;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\Query\Expr\Join;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
@@ -48,6 +50,11 @@ class SubmissionController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var FormFactoryInterface
      */
     protected $formFactory;
@@ -56,18 +63,20 @@ class SubmissionController extends BaseController
         EntityManagerInterface $em,
         SubmissionService $submissionService,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         FormFactoryInterface $formFactory
     ) {
         $this->em                = $em;
         $this->submissionService = $submissionService;
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->formFactory       = $formFactory;
     }
 
     /**
      * @Route("/submit", name="team_submit")
      * @param Request $request
-     * @return \Symfony\Component\HttpFoundation\Response
+     * @return Response
      * @throws \Exception
      */
     public function createAction(Request $request)
@@ -130,15 +139,16 @@ class SubmissionController extends BaseController
      * @Route("/submission/{submitId<\d+>}", name="team_submission")
      * @param Request $request
      * @param int     $submitId
-     * @return \Symfony\Component\HttpFoundation\Response
-     * @throws \Doctrine\ORM\NonUniqueResultException
+     * @return Response
+     * @throws NonUniqueResultException
      */
     public function viewAction(Request $request, int $submitId)
     {
-        $verificationRequired = (bool)$this->dj->dbconfig_get('verification_required', false);;
-        $showCompile      = $this->dj->dbconfig_get('show_compile', 2);
+        $verificationRequired = (bool)$this->config->get('verification_required');;
+        $showCompile      = $this->config->get('show_compile');
         $showSource       = $this->dj->dbconfig_get('show_source_to_teams', false);
-        $showSampleOutput = $this->dj->dbconfig_get('show_sample_output', 0);
+        $showSampleOutput = $this->config->get('show_sample_output');
+        $allowDownload    = (bool)$this->config->get('allow_team_submission_download');
         $user             = $this->dj->getUser();
         $team             = $user->getTeam();
         $contest          = $this->dj->getCurrentContest($team->getTeamid());
@@ -165,31 +175,47 @@ class SubmissionController extends BaseController
             $this->em->flush();
         }
 
-        /** @var Testcase[] $runs */
+        $sourceData = $this->submissionService->getDiffedSourceFiles($judging->getSubmission());
+
         $runs = [];
-        $sourceData = [];
+        if ($showSampleOutput && $judging && $judging->getResult() !== 'compiler-error') {
+            $outputDisplayLimit    = (int)$this->config->get('output_display_limit');
+            $outputTruncateMessage = sprintf("\n[output display truncated after %d B]\n", $outputDisplayLimit);
 
-        // Skip all further requests if the submission does not exist or does not belong to the team
-        if ($judging) {
-            if ($showSource) {
-                $sourceData = $this->submissionService->getDiffedSourceFiles($judging->getSubmission());
+
+            $queryBuilder = $this->em->createQueryBuilder()
+                ->from(Testcase::class, 't')
+                ->join('t.content', 'tc')
+                ->leftJoin('t.judging_runs', 'jr', Join::WITH, 'jr.judging = :judging')
+                ->leftJoin('jr.output', 'jro')
+                ->select('t', 'jr', 'tc')
+                ->andWhere('t.problem = :problem')
+                ->andWhere('t.sample = 1')
+                ->setParameter(':judging', $judging)
+                ->setParameter(':problem', $judging->getSubmission()->getProblem())
+                ->orderBy('t.rank');
+
+            if ($outputDisplayLimit < 0) {
+                $queryBuilder
+                    ->addSelect('tc.output AS output_reference')
+                    ->addSelect('jro.output_run AS output_run')
+                    ->addSelect('jro.output_diff AS output_diff')
+                    ->addSelect('jro.output_error AS output_error')
+                    ->addSelect('jro.output_system AS output_system');
+            } else {
+                $queryBuilder
+                    ->addSelect('TRUNCATE(tc.output, :outputDisplayLimit, :outputTruncateMessage) AS output_reference')
+                    ->addSelect('TRUNCATE(jro.output_run, :outputDisplayLimit, :outputTruncateMessage) AS output_run')
+                    ->addSelect('TRUNCATE(jro.output_diff, :outputDisplayLimit, :outputTruncateMessage) AS output_diff')
+                    ->addSelect('TRUNCATE(jro.output_error, :outputDisplayLimit, :outputTruncateMessage) AS output_error')
+                    ->addSelect('TRUNCATE(jro.output_system, :outputDisplayLimit, :outputTruncateMessage) AS output_system')
+                    ->setParameter(':outputDisplayLimit', $outputDisplayLimit)
+                    ->setParameter(':outputTruncateMessage', $outputTruncateMessage);
             }
 
-            if ($showSampleOutput && $judging->getResult() !== 'compiler-error') {
-                $runs = $this->em->createQueryBuilder()
-                    ->from(Testcase::class, 't')
-                    ->join('t.content', 'tc')
-                    ->leftJoin('t.judging_runs', 'jr', Join::WITH, 'jr.judging = :judging')
-                    ->leftJoin('jr.output', 'jro')
-                    ->select('t', 'jr', 'tc', 'jro')
-                    ->andWhere('t.problem = :problem')
-                    ->andWhere('t.sample = 1')
-                    ->setParameter(':judging', $judging)
-                    ->setParameter(':problem', $judging->getSubmission()->getProblem())
-                    ->orderBy('t.rank')
-                    ->getQuery()
-                    ->getResult();
-            }
+            $runs = $queryBuilder
+                ->getQuery()
+                ->getResult();
         }
 
         $data = array_merge($sourceData, [
@@ -197,6 +223,7 @@ class SubmissionController extends BaseController
             'verificationRequired' => $verificationRequired,
             'showCompile' => $showCompile,
             'showSource' => $showSource,
+            'allowDownload' => $allowDownload,
             'showSampleOutput' => $showSampleOutput,
             'runs' => $runs,
         ]);
@@ -231,6 +258,40 @@ class SubmissionController extends BaseController
         $response->setContent($file->getSourcecode());
 
         return $response;
+    }
 
+     * @Route("/submission/{submitId<\d+>}/download", name="team_submission_download")
+     * @param int $submitId
+     *
+     * @return Response
+     * @throws NonUniqueResultException
+     */
+    public function downloadAction($submitId)
+    {
+        $allowDownload = (bool)$this->config->get('allow_team_submission_download');
+        if (!$allowDownload) {
+            throw new NotFoundHttpException('Submission download not allowed');
+        }
+
+        $user = $this->dj->getUser();
+        $team = $user->getTeam();
+        /** @var Submission $submission */
+        $submission = $this->em->createQueryBuilder()
+            ->from(Submission::class, 's')
+            ->join('s.files', 'f')
+            ->select('s, f')
+            ->andWhere('s.submitid = :submitId')
+            ->andWhere('s.team = :team')
+            ->setParameter(':submitId', $submitId)
+            ->setParameter(':team', $team)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        if ($submission === null) {
+            throw new NotFoundHttpException(sprintf('Submission with ID \'%s\' not found',
+                $submitId));
+        }
+
+        return $this->submissionService->getSubmissionZipResponse($submission);
     }
 }
