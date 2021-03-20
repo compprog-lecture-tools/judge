@@ -6,6 +6,7 @@ use App\Entity\ContestProblem;
 use App\Entity\Language;
 use App\Entity\Team;
 use App\Entity\Testcase;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\ScoreboardService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -33,6 +34,11 @@ class PublicController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var ScoreboardService
      */
     protected $scoreboardService;
@@ -44,10 +50,12 @@ class PublicController extends BaseController
 
     public function __construct(
         DOMJudgeService $dj,
+        ConfigurationService $config,
         ScoreboardService $scoreboardService,
         EntityManagerInterface $em
     ) {
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->scoreboardService = $scoreboardService;
         $this->em                = $em;
     }
@@ -114,8 +122,9 @@ class PublicController extends BaseController
             $data['hide_menu'] = true;
         }
 
+        $data['current_contest'] = $contest;
+
         if ($request->isXmlHttpRequest()) {
-            $data['current_contest'] = $contest;
             return $this->render('partials/scoreboard.html.twig', $data, $response);
         }
         return $this->render('public/scoreboard.html.twig', $data, $response);
@@ -149,8 +158,8 @@ class PublicController extends BaseController
     public function teamAction(Request $request, int $teamId)
     {
         $team             = $this->em->getRepository(Team::class)->find($teamId);
-        $showFlags        = (bool)$this->dj->dbconfig_get('show_flags', true);
-        $showAffiliations = (bool)$this->dj->dbconfig_get('show_affiliations', true);
+        $showFlags        = (bool)$this->config->get('show_flags');
+        $showAffiliations = (bool)$this->config->get('show_affiliations');
         $data             = [
             'team' => $team,
             'showFlags' => $showFlags,
@@ -172,42 +181,8 @@ class PublicController extends BaseController
      */
     public function problemsAction()
     {
-        $contest            = $this->dj->getCurrentContest(-1);
-        $showLimits         = (bool)$this->dj->dbconfig_get('show_limits_on_team_page');
-        $defaultMemoryLimit = (int)$this->dj->dbconfig_get('memory_limit', 0);
-        $timeFactorDiffers  = false;
-        if ($showLimits) {
-            $timeFactorDiffers = $this->em->createQueryBuilder()
-                    ->from(Language::class, 'l')
-                    ->select('COUNT(l)')
-                    ->andWhere('l.allowSubmit = true')
-                    ->andWhere('l.timeFactor <> 1')
-                    ->getQuery()
-                    ->getSingleScalarResult() > 0;
-        }
-
-        $problems = [];
-        if ($contest && $contest->getFreezeData()->started()) {
-            $problems = $this->em->createQueryBuilder()
-                ->from(ContestProblem::class, 'cp')
-                ->join('cp.problem', 'p')
-                ->leftJoin('p.testcases', 'tc')
-                ->select('partial p.{probid,name,externalid,problemtext_type,timelimit,memlimit}', 'cp', 'SUM(tc.sample) AS numsamples')
-                ->andWhere('cp.contest = :contest')
-                ->andWhere('cp.allowSubmit = 1')
-                ->setParameter(':contest', $contest)
-                ->addOrderBy('cp.shortname')
-                ->groupBy('cp.problem')
-                ->getQuery()
-                ->getResult();
-        }
-
-        return $this->render('public/problems.html.twig', [
-            'problems' => $problems,
-            'showLimits' => $showLimits,
-            'defaultMemoryLimit' => $defaultMemoryLimit,
-            'timeFactorDiffers' => $timeFactorDiffers,
-        ]);
+        return $this->render('public/problems.html.twig',
+            $this->dj->getTwigDataForProblemsAction(-1));
     }
 
 

@@ -78,6 +78,16 @@ class TeamCategory extends BaseApiEntity
     private $visible = true;
 
     /**
+     * @var boolean
+     * @ORM\Column(type="boolean", name="allow_self_registration",
+     *     options={"comment"="Are self-registered teams allowed to choose this category?",
+     *              "default"="0"},
+     *     nullable=false)
+     * @Serializer\Exclude()
+     */
+    private $allow_self_registration = false;
+
+    /**
      * @ORM\OneToMany(targetEntity="Team", mappedBy="category")
      * @Serializer\Exclude()
      */
@@ -226,6 +236,30 @@ class TeamCategory extends BaseApiEntity
     }
 
     /**
+     * Set allowSelfRegistration
+     *
+     * @param boolean $allowSelfRegistration
+     *
+     * @return TeamCategory
+     */
+    public function setAllowSelfRegistration($allowSelfRegistration)
+    {
+        $this->allow_self_registration = $allowSelfRegistration;
+
+        return $this;
+    }
+
+    /**
+     * Get allowSelfRegistration
+     *
+     * @return boolean
+     */
+    public function getAllowSelfRegistration()
+    {
+        return $this->allow_self_registration;
+    }
+
+    /**
      * Add team
      *
      * @param \App\Entity\Team $team
@@ -285,5 +319,17 @@ class TeamCategory extends BaseApiEntity
         }
 
         return $this;
+    }
+
+    /**
+     * Check if this team category belongs to the given contest
+     *
+     * @param Contest $contest
+     *
+     * @return bool
+     */
+    public function inContest(Contest $contest): bool
+    {
+        return $contest->isOpenToAllTeams() || $this->getContests()->contains($contest);
     }
 }

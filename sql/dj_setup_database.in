@@ -6,6 +6,7 @@
 
 set -e
 
+BINDIR="@domserver_bindir@"
 ETCDIR="@domserver_etcdir@"
 WEBAPPDIR="@domserver_webappdir@"
 
@@ -128,6 +129,11 @@ symfony_console()
 	else
 		${WEBAPPDIR}/bin/console -v $ARG "$@"
 	fi
+
+	# Make sure any generated cache data has the right permissions if we ran as root.
+	if [ `id -u` -eq 0 ]; then
+		${BINDIR}/fix_permissions
+	fi
 }
 
 read_dbpasswords()
@@ -192,7 +198,8 @@ create_db_users()
 	# in etc/domserver-config.php updated after installation.
 	echo "CREATE DATABASE IF NOT EXISTS \`$DBNAME\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-	echo "GRANT SELECT, INSERT, UPDATE, DELETE ON \`$DBNAME\`.* TO '$domjudge_DBUSER'@'localhost' IDENTIFIED BY '$domjudge_PASSWD';"
+	echo "CREATE USER IF NOT EXISTS '$domjudge_DBUSER'@'localhost' IDENTIFIED BY '$domjudge_PASSWD';"
+	echo "GRANT SELECT, INSERT, UPDATE, DELETE ON \`$DBNAME\`.* TO '$domjudge_DBUSER'@'localhost';"
 
 	echo "FLUSH PRIVILEGES;"
 	) | mysql
@@ -203,10 +210,7 @@ remove_db_users()
 {
 	(
 	echo "DROP DATABASE IF EXISTS \`$DBNAME\`;"
-# Also drop "@%" users, since those may have been created by pre-4.0 versions
-# of DOMjudge.
-	echo "DROP USER IF EXISTS
-		'$domjudge_DBUSER'@'%', '$domjudge_DBUSER'@'localhost';"
+	echo "DROP USER IF EXISTS '$domjudge_DBUSER'@'localhost';"
 	echo "FLUSH PRIVILEGES;"
 	) | mysql -f
 	verbose "DOMjudge database and user(s) removed."
@@ -305,7 +309,6 @@ upgrade)
 	read_dbpasswords
 	symfony_console doctrine:migrations:migrate -n
 	verbose "DOMjudge database upgrade completed."
-	rm -f $TMPOUT
 	;;
 
 *)

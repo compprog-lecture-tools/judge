@@ -12,6 +12,7 @@ use App\Entity\Team;
 use App\Entity\User;
 use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Query;
 
 class RejudgingService
 {
@@ -46,7 +47,7 @@ class RejudgingService
     /**
      * RejudgingService constructor.
      * @param EntityManagerInterface $em
-     * @param DOMJudgeService        $DOMJudgeService
+     * @param DOMJudgeService        $dj
      * @param ScoreboardService      $scoreboardService
      * @param EventLogService        $eventLogService
      * @param BalloonService         $balloonService
@@ -63,6 +64,93 @@ class RejudgingService
         $this->scoreboardService = $scoreboardService;
         $this->eventLogService   = $eventLogService;
         $this->balloonService    = $balloonService;
+    }
+
+    /**
+     * Create a new rejudging.
+     * @param string        $reason           Reason for this rejudging
+     * @param array         $judgings         List of judgings to rejudging
+     * @param bool          $autoApply        Whether the judgings should be automatically applied.
+     * @param array        &$skipped          Returns list of judgings not included.
+     * @return Rejudging|null
+     */
+    public function createRejudging(
+        string $reason,
+        array $judgings,
+        bool $autoApply,
+        int $repeat,
+        $repeat_rejudgingid,
+        array &$skipped
+    ) {
+        /** @var Rejudging $rejudging */
+        $rejudging = new Rejudging();
+        $rejudging
+            ->setStartUser($this->dj->getUser())
+            ->setStarttime(Utils::now())
+            ->setReason($reason)
+            ->setAutoApply($autoApply);
+        $this->em->persist($rejudging);
+        $this->em->flush();
+        if (isset($repeat) && $repeat > 1) {
+            if ($repeat_rejudgingid === null) {
+                $repeat_rejudgingid = $rejudging->getRejudgingid();
+            }
+            $rejudging
+                ->setRepeat($repeat)
+                ->setRepeatRejudgingId($repeat_rejudgingid);
+            $this->em->flush();
+        }
+
+        $singleJudging = count($judgings) == 1;
+        foreach ($judgings as $judging) {
+            $submission = $judging['submission'];
+            if ($submission['rejudgingid'] !== null) {
+                // The submission is already part of another rejudging, record and skip it.
+                $skipped[] = $judging;
+                continue;
+            }
+
+            $this->em->transactional(function () use (
+                $singleJudging,
+                $judging,
+                $submission,
+                $rejudging
+            ) {
+                $this->em->getConnection()->executeUpdate(
+                    'UPDATE submission SET judgehost = null WHERE submitid = :submitid AND rejudgingid IS NULL',
+                    [ ':submitid' => $submission['submitid'] ]
+                );
+                if ($rejudging) {
+                    $this->em->getConnection()->executeUpdate(
+                        'UPDATE submission SET rejudgingid = :rejudgingid WHERE submitid = :submitid AND rejudgingid IS NULL',
+                        [
+                            ':rejudgingid' => $rejudging->getRejudgingid(),
+                            ':submitid' => $submission['submitid'],
+                        ]
+                    );
+                }
+
+                if ($singleJudging) {
+                    $teamid = $submission['teamid'];
+                    if ($teamid) {
+                        $this->em->getConnection()->executeUpdate(
+                            'UPDATE team SET judging_last_started = null WHERE teamid = :teamid',
+                            [ ':teamid' => $teamid ]
+                        );
+                    }
+                }
+            });
+       }
+
+        if (count($skipped) == count($judgings)) {
+            // We skipped all judgings, this is a hard error. Let's clean up the rejudging and report it.
+            // The most common case of this is that a single submissions was requested and already is part of another
+            // rejudging.
+            $this->em->remove($rejudging);
+            $this->em->flush();
+            return null;
+        }
+        return $rejudging;
     }
 
     /**
@@ -92,25 +180,7 @@ class RejudgingService
 
         $rejudgingId = $rejudging->getRejudgingid();
 
-        $todo = $this->em->createQueryBuilder()
-            ->from(Submission::class, 's')
-            ->select('COUNT(s)')
-            ->andWhere('s.rejudging = :rejudging')
-            ->setParameter(':rejudging', $rejudging)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $done = $this->em->createQueryBuilder()
-            ->from(Judging::class, 'j')
-            ->select('COUNT(j)')
-            ->andWhere('j.rejudging = :rejudging')
-            ->andWhere('j.endtime IS NOT NULL')
-            ->setParameter(':rejudging', $rejudging)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $todo -= $done;
-
+        $todo = $this->calculateTodo($rejudging)['todo'];
         if ($action == self::ACTION_APPLY && $todo > 0) {
             $error = sprintf('%d unfinished judgings left, cannot apply rejudging.', $todo);
             if ($progressReporter) {
@@ -151,9 +221,12 @@ class RejudgingService
 
         // This loop uses direct queries instead of Doctrine classes to speed
         // it up drastically.
+        $firstItem = true;
         foreach ($submissions as $submission) {
             if ($progressReporter) {
-                $progressReporter(sprintf('s%s, ', $submission['submitid']));
+                $progstring = $firstItem ? '' : ', ';
+                $progressReporter($progstring . 's' . $submission['submitid']);
+                $firstItem = false;
             }
 
             if ($action === self::ACTION_APPLY) {
@@ -251,5 +324,42 @@ class RejudgingService
         $this->dj->auditlog('rejudging', $rejudgingId, $action . 'ing rejudge', '(end)');
 
         return true;
+    }
+
+    /**
+     * @param Rejudging $rejudging
+     * @return array
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
+     */
+    public function calculateTodo(Rejudging $rejudging)
+    {
+        // Make sure we have the most recent data. This is necessary to
+        // guarantee that repeated rejugdings are scheduled correctly.
+        $this->em->flush();
+
+        $todo = $this->em->createQueryBuilder()
+            ->from(Submission::class, 's')
+            ->select('COUNT(s)')
+            ->andWhere('s.rejudging = :rejudging')
+            ->setParameter(':rejudging', $rejudging)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        $done = $this->em->createQueryBuilder()
+            ->from(Judging::class, 'j')
+            ->select('COUNT(j)')
+            ->andWhere('j.rejudging = :rejudging')
+            ->andWhere('j.endtime IS NOT NULL')
+            // This is necessary for rejudgings which apply automatically.
+            // We remove the association of the submission with the rejudging,
+            // but not the one of the judging with the rejudging for accounting reasons.
+            ->andWhere('j.valid = 0')
+            ->setParameter(':rejudging', $rejudging)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        $todo -= $done;
+        return ['todo' => $todo, 'done' => $done];
     }
 }

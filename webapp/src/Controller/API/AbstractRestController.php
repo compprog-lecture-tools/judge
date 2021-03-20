@@ -3,6 +3,7 @@
 namespace App\Controller\API;
 
 use App\Entity\Contest;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Utils\Utils;
@@ -32,20 +33,33 @@ abstract class AbstractRestController extends AbstractFOSRestController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
 
     /**
      * AbstractRestController constructor.
+     *
      * @param EntityManagerInterface $entityManager
-     * @param DOMJudgeService $dj
+     * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
+     * @param EventLogService        $eventLogService
      */
-    public function __construct(EntityManagerInterface $entityManager, DOMJudgeService $dj, EventLogService $eventLogService)
-    {
-        $this->em   = $entityManager;
+    public function __construct(
+        EntityManagerInterface $entityManager,
+        DOMJudgeService $dj,
+        ConfigurationService $config,
+        EventLogService $eventLogService
+    ) {
+        $this->em              = $entityManager;
         $this->dj              = $dj;
         $this->eventLogService = $eventLogService;
+        $this->config          = $config;
     }
 
     /**
@@ -56,36 +70,7 @@ abstract class AbstractRestController extends AbstractFOSRestController
      */
     protected function performListAction(Request $request)
     {
-        // Make sure we clear the entity manager class, for when this method is called multiple times by internal requests
-        $this->em->clear();
-        $queryBuilder = $this->getQueryBuilder($request);
-
-        if ($request->query->has('ids')) {
-            $ids = $request->query->get('ids', []);
-            if (!is_array($ids)) {
-                throw new BadRequestHttpException('\'ids\' should be an array of ID\'s to fetch');
-            }
-
-            $ids = array_unique($ids);
-
-            $queryBuilder
-                ->andWhere(sprintf('%s IN (:ids)', $this->getIdField()))
-                ->setParameter(':ids', $ids);
-        }
-
-        $objects = $queryBuilder
-            ->getQuery()
-            ->getResult();
-
-        if (isset($ids) && count($objects) !== count($ids)) {
-            throw new NotFoundHttpException('One or more objects not found');
-        }
-
-        if ($this instanceof QueryObjectTransformer) {
-            $objects = array_map([$this, 'transformObject'], $objects);
-        }
-
-        return $this->renderData($request, $objects);
+        return $this->renderData($request, $this->listActionHelper($request));
     }
 
     /**
@@ -130,6 +115,7 @@ abstract class AbstractRestController extends AbstractFOSRestController
 
         // Set the DOMjudge service on the context, so we can use it for permissions
         $view->getContext()->setAttribute('domjudge_service', $this->dj);
+        $view->getContext()->setAttribute('config_service', $this->config);
 
         $groups = ['Default'];
         if (!$request->query->has('strict') || !$request->query->getBoolean('strict')) {
@@ -152,10 +138,14 @@ abstract class AbstractRestController extends AbstractFOSRestController
             ->from(Contest::class, 'c')
             ->select('c')
             ->andWhere('c.enabled = 1')
-            ->andWhere('c.activatetime <= :now')
-            ->andWhere('c.deactivatetime IS NULL OR c.deactivatetime > :now')
-            ->setParameter(':now', $now)
             ->orderBy('c.activatetime');
+
+        if (!$this->dj->checkrole('api_reader')) {
+            $qb
+                ->andWhere('c.activatetime <= :now')
+                ->andWhere('c.deactivatetime IS NULL OR c.deactivatetime > :now')
+                ->setParameter(':now', $now);
+        }
 
         // Filter on contests this user has access to
         if (!$this->dj->checkrole('api_reader') && !$this->dj->checkrole('judgehost')) {
@@ -225,4 +215,42 @@ abstract class AbstractRestController extends AbstractFOSRestController
      * @return string
      */
     abstract protected function getIdField(): string;
+
+    /**
+     * @param Request $request
+     * @return array|int|mixed|string
+     * @throws NonUniqueResultException
+     */
+    protected function listActionHelper(Request $request)
+    {
+        // Make sure we clear the entity manager class, for when this method is called multiple times by internal requests.
+        $this->em->clear();
+        $queryBuilder = $this->getQueryBuilder($request);
+
+        if ($request->query->has('ids')) {
+            $ids = $request->query->get('ids', []);
+            if (!is_array($ids)) {
+                throw new BadRequestHttpException('\'ids\' should be an array of ID\'s to fetch');
+            }
+
+            $ids = array_unique($ids);
+
+            $queryBuilder
+                ->andWhere(sprintf('%s IN (:ids)', $this->getIdField()))
+                ->setParameter(':ids', $ids);
+        }
+
+        $objects = $queryBuilder
+            ->getQuery()
+            ->getResult();
+
+        if (isset($ids) && count($objects) !== count($ids)) {
+            throw new NotFoundHttpException('One or more objects not found');
+        }
+
+        if ($this instanceof QueryObjectTransformer) {
+            $objects = array_map([$this, 'transformObject'], $objects);
+        }
+        return $objects;
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Controller\Jury;
 use App\Entity\AuditLog;
 use App\Entity\Testcase;
 use App\Entity\User;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Utils\Utils;
@@ -34,23 +35,32 @@ class AuditLogController extends AbstractController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
 
     /**
      * AuditLogController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EventLogService        $eventLogService
      */
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService
     ) {
         $this->em              = $em;
         $this->dj              = $dj;
+        $this->config          = $config;
         $this->eventLogService = $eventLogService;
     }
 
@@ -59,7 +69,7 @@ class AuditLogController extends AbstractController
      */
     public function indexAction(Request $request, Packages $assetPackage, KernelInterface $kernel)
     {
-        $timeFormat = (string)$this->dj->dbconfig_get('time_format', '%H:%M');
+        $timeFormat = (string)$this->config->get('time_format');
 
         $showAll = $request->query->get('showAll', false);
         $page = $request->query->get('page', 1);
@@ -97,8 +107,10 @@ class AuditLogController extends AbstractController
             $data['what']['value'] = $datatype . " " . $dataid . " " .
                             $logline->getAction() . " " .
                             $logline->getExtraInfo();
-            if( !is_null($dataid) ) {
+            if (!is_null($dataid)) {
                 $dataurl = $this->generateDatatypeUrl($datatype, $dataid);
+            } else {
+                $dataurl = null;
             }
             if (isset($dataurl)) {
                 $data['what']['link'] = $dataurl;
@@ -159,6 +171,8 @@ class AuditLogController extends AbstractController
                 return $this->generateUrl('jury_judgehost_restriction', ['restrictionId' => $id]);
             case 'judging':
                 return $this->generateUrl('jury_submission_by_judging', ['jid' => $id]);
+            case 'external_judgement':
+                return $this->generateUrl('jury_submission_by_external_judgement', ['externalJudgement' => $id]);
             case 'language':
                 return $this->generateUrl('jury_language', ['langId' => $id]);
             case 'problem':

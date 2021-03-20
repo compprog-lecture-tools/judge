@@ -3,6 +3,7 @@
 namespace App\Controller\API;
 
 use App\Entity\Contest;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ScoreboardService;
@@ -10,16 +11,18 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\QueryBuilder;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Intl\Exception\NotImplementedException;
 
 /**
  * @Rest\Route("/api/v4/contests/{cid}/awards", defaults={ "_format" = "json" })
  * @Rest\Prefix("/api/contests/{cid}/awards")
- * @Rest\NamePrefix("scoreboard_")
- * @SWG\Tag(name="Scoreboard")
+ * @Rest\NamePrefix("awards_")
+ * @SWG\Tag(name="Awards")
  * @SWG\Parameter(ref="#/parameters/cid")
  * @SWG\Response(response="404", ref="#/definitions/NotFound")
  * @SWG\Response(response="401", ref="#/definitions/Unauthorized")
@@ -33,18 +36,21 @@ class AwardsController extends AbstractRestController
 
     /**
      * ScoreboardController constructor.
+     *
      * @param EntityManagerInterface $entityManager
      * @param DOMJudgeService        $DOMJudgeService
+     * @param ConfigurationService   $config
      * @param EventLogService        $eventLogService
      * @param ScoreboardService      $scoreboardService
      */
     public function __construct(
         EntityManagerInterface $entityManager,
         DOMJudgeService $DOMJudgeService,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         ScoreboardService $scoreboardService
     ) {
-        parent::__construct($entityManager, $DOMJudgeService, $eventLogService);
+        parent::__construct($entityManager, $DOMJudgeService, $config, $eventLogService);
         $this->scoreboardService = $scoreboardService;
     }
 
@@ -53,7 +59,6 @@ class AwardsController extends AbstractRestController
      * @param Request $request
      * @return array
      * @Rest\Get("")
-     * @IsGranted({"ROLE_JURY", "ROLE_API_READER"})
      * @SWG\Response(
      *     response="200",
      *     description="Returns the current teams qualifying for each award",
@@ -62,6 +67,7 @@ class AwardsController extends AbstractRestController
      *         @SWG\Items(ref="#/definitions/Award")
      *     )
      * )
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @throws \Exception
      */
     public function listAction(Request $request)
@@ -81,6 +87,7 @@ class AwardsController extends AbstractRestController
      *     @SWG\Schema(ref="#/definitions/Award")
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @throws \Exception
      */
     public function singleAction(Request $request, string $id)
@@ -103,13 +110,13 @@ class AwardsController extends AbstractRestController
      */
     protected function getAwardsData(Request $request, string $requestedType = null)
     {
-        $public   = false;
-        if ($this->dj->checkrole('jury') && $request->query->has('public')) {
+        $public = !$this->dj->checkrole('api_reader');
+        if ($this->dj->checkrole('api_reader') && $request->query->has('public')) {
             $public = $request->query->getBoolean('public');
         }
         /** @var Contest $contest */
         $contest       = $this->em->getRepository(Contest::class)->find($this->getContestId($request));
-        $isJury        = $this->isGranted('ROLE_JURY');
+        $isJury        = $this->dj->checkrole('api_reader');
         $accessAllowed = ($isJury && $contest->getEnabled()) || (!$isJury && $contest->isActive());
         if (!$accessAllowed) {
             throw new AccessDeniedHttpException();
@@ -155,8 +162,8 @@ class AwardsController extends AbstractRestController
         $overall_winners = $medal_winners = [];
         // can we assume this is ordered just walk the first 12+B entries?
         foreach ($scoreboard->getScores() as $teamScore) {
-            $rank = $teamScore->getRank();
-            $teamid = (string)$teamScore->getTeam()->getApiId($this->eventLogService);
+            $rank = $teamScore->rank;
+            $teamid = (string)$teamScore->team->getApiId($this->eventLogService);
             if ($rank === 1) {
                 $overall_winners[] = $teamid;
             }
@@ -202,8 +209,7 @@ class AwardsController extends AbstractRestController
      */
     protected function getQueryBuilder(Request $request): QueryBuilder
     {
-        // Not used for awards endpoint
-        return null;
+        throw new NotImplementedException();
     }
 
     /**
@@ -211,7 +217,6 @@ class AwardsController extends AbstractRestController
      */
     protected function getIdField(): string
     {
-        // Not used for awaards endpoint
-        return '';
+        throw new NotImplementedException();
     }
 }

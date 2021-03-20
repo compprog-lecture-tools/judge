@@ -8,6 +8,7 @@ use App\Entity\TeamAffiliation;
 use App\Entity\TeamCategory;
 use App\Entity\User;
 use App\Form\Type\UserRegistrationType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use Exception;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -27,9 +28,17 @@ class SecurityController extends AbstractController
      */
     private $dj;
 
-    public function __construct(DOMJudgeService $dj)
-    {
+    /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    public function __construct(
+        DOMJudgeService $dj,
+        ConfigurationService $config
+    ) {
         $this->dj = $dj;
+        $this->config = $config;
     }
 
     /**
@@ -47,13 +56,13 @@ class SecurityController extends AbstractController
     )
     {
         $allowIPAuth = false;
-        $authmethods = $this->dj->dbconfig_get('auth_methods', []);
+        $authmethods = $this->config->get('auth_methods');
 
         if (in_array('ipaddress', $authmethods)) {
             $allowIPAuth = true;
         }
 
-        $ipAutologin = $this->dj->dbconfig_get('ip_autologin', false);
+        $ipAutologin = $this->config->get('ip_autologin');
         if ($authorizationChecker->isGranted('IS_AUTHENTICATED_FULLY') && !$ipAutologin) {
             return $this->redirect($this->generateUrl('root'));
         }
@@ -69,20 +78,19 @@ class SecurityController extends AbstractController
         $clientIP             = $this->dj->getClientIp();
         $auth_ipaddress_users = [];
         if ($allowIPAuth) {
-            $auth_ipaddress_users = $em->getRepository(User::class)->findBy(['ipAddress' => $clientIP]);
+            $auth_ipaddress_users = $em->getRepository(User::class)->findBy(['ipAddress' => $clientIP, 'enabled' => 1]);
         }
 
         // Add a header so we can detect that this is the login page
         $response = new Response();
         $response->headers->set('X-Login-Page', $this->generateUrl('login'));
 
-        $registrationCategoryName = $this->dj->dbconfig_get('registration_category_name', '');
-        $registrationCategory     = $em->getRepository(TeamCategory::class)->findOneBy(['name' => $registrationCategoryName]);
+        $selfRegistrationCategoriesCount = $em->getRepository(TeamCategory::class)->count(['allow_self_registration' => 1]);
 
         return $this->render('security/login.html.twig', array(
             'last_username' => $lastUsername,
             'error' => $error,
-            'allow_registration' => $registrationCategory !== null,
+            'allow_registration' => $selfRegistrationCategoriesCount !== 0,
             'allowed_authmethods' => $authmethods,
             'auth_xheaders_present' => $request->headers->get('X-DOMjudge-Login'),
             'auth_ipaddress_users' => $auth_ipaddress_users,
@@ -108,11 +116,10 @@ class SecurityController extends AbstractController
             return $this->redirect($this->generateUrl('root'));
         }
 
-        $em                       = $this->getDoctrine()->getManager();
-        $registrationCategoryName = $this->dj->dbconfig_get('registration_category_name', '');
-        $registrationCategory     = $em->getRepository(TeamCategory::class)->findOneBy(['name' => $registrationCategoryName]);
+        $em                              = $this->getDoctrine()->getManager();
+        $selfRegistrationCategoriesCount = $em->getRepository(TeamCategory::class)->count(['allow_self_registration' => 1]);
 
-        if ($registrationCategory === null) {
+        if ($selfRegistrationCategoriesCount === 0) {
             throw new HttpException(400, "Registration not enabled");
         }
 
@@ -130,23 +137,32 @@ class SecurityController extends AbstractController
 
             $teamName = $registration_form->get('teamName')->getData();
 
+            if ($selfRegistrationCategoriesCount === 1) {
+                $teamCategory = $em->getRepository(TeamCategory::class)->findOneBy(['allow_self_registration' => 1]);
+            } else {
+                // $selfRegistrationCategoriesCount > 1, 'teamCategory' field exists
+                $teamCategory = $registration_form->get('teamCategory')->getData();
+            }
+
             // Create a team to go with the user, then set some team attributes
             $team = new Team();
             $user->setTeam($team);
             $team
                 ->addUser($user)
                 ->setName($teamName)
-                ->setCategory($registrationCategory)
+                ->setCategory($teamCategory)
                 ->setComments('Registered by ' . $this->dj->getClientIp() . ' on ' . date('r'));
 
-            if ($this->dj->dbconfig_get('show_affiliations', true)) {
+            if ($this->config->get('show_affiliations')) {
                 switch ($registration_form->get('affiliation')->getData()) {
                     case 'new':
                         $affiliation = new TeamAffiliation();
                         $affiliation
                             ->setName($registration_form->get('affiliationName')->getData())
-                            ->setShortname($registration_form->get('affiliationName')->getData())
-                            ->setCountry($registration_form->get('affiliationCountry')->getData());
+                            ->setShortname($registration_form->get('affiliationName')->getData());
+                        if ($registration_form->has('affiliationCountry')) {
+                            $affiliation->setCountry($registration_form->get('affiliationCountry')->getData());
+                        }
                         $team->setAffiliation($affiliation);
                         $em->persist($affiliation);
                         break;

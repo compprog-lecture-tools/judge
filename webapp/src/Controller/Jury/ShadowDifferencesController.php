@@ -2,7 +2,10 @@
 
 namespace App\Controller\Jury;
 
+use App\Service\ConfigurationService;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\NonUniqueResultException;
+use Doctrine\ORM\NoResultException;
 use Doctrine\ORM\Query\Expr\Join;
 use App\Controller\BaseController;
 use App\Entity\ExternalJudgement;
@@ -11,7 +14,9 @@ use App\Entity\Submission;
 use App\Service\DOMJudgeService;
 use App\Service\SubmissionService;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\Routing\Annotation\Route;
 
@@ -25,6 +30,11 @@ class ShadowDifferencesController extends BaseController
      * @var DOMJudgeService
      */
     protected $dj;
+
+    /**
+     * @var ConfigurationService
+     */
+    protected $config;
 
     /**
      * @var SubmissionService
@@ -43,11 +53,13 @@ class ShadowDifferencesController extends BaseController
 
     public function __construct(
         DOMJudgeService $dj,
+        ConfigurationService $config,
         SubmissionService $submissions,
         SessionInterface $session,
         EntityManagerInterface $em
     ) {
         $this->dj          = $dj;
+        $this->config      = $config;
         $this->submissions = $submissions;
         $this->session     = $session;
         $this->em          = $em;
@@ -55,11 +67,16 @@ class ShadowDifferencesController extends BaseController
 
     /**
      * @Route("", name="jury_shadow_differences")
+     * @param Request $request
+     *
+     * @return RedirectResponse|Response
+     * @throws NoResultException
+     * @throws NonUniqueResultException
      */
     public function indexAction(Request $request)
     {
         $shadowMode = DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL;
-        $dataSource = $this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL);
+        $dataSource = $this->config->get('data_source');
         if ($dataSource != $shadowMode) {
             $this->addFlash('danger', sprintf(
                 'Shadow differences only supported when data_source is %d',
@@ -74,6 +91,10 @@ class ShadowDifferencesController extends BaseController
         $contest        = $this->dj->getCurrentContest();
         $verdictsConfig = $this->dj->getDomjudgeEtcDir() . '/verdicts.php';
         $verdicts       = array_merge(['judging' => 'JU'], include $verdictsConfig);
+
+        if (!$contest) {
+            return $this->render('jury/shadow_differences.html.twig');
+        }
 
         $used         = [];
         $verdictTable = [];
@@ -153,6 +174,15 @@ class ShadowDifferencesController extends BaseController
             }
         }
 
+        $verificationViewTypes = [0 => 'all', 1 => 'unverified', 2 => 'verified'];
+        $verificationView      = 0;
+        if ($request->query->has('verificationview')) {
+            $index = array_search($request->query->get('verificationview'), $verificationViewTypes);
+            if ($index !== false) {
+                $verificationView = $index;
+            }
+        }
+
         $restrictions = [];
         if ($viewTypes[$view] == 'unjudged local') {
             $restrictions['judged'] = 0;
@@ -162,6 +192,12 @@ class ShadowDifferencesController extends BaseController
         }
         if ($viewTypes[$view] == 'diff') {
             $restrictions['external_diff'] = 1;
+        }
+        if ($verificationViewTypes[$verificationView] == 'unverified') {
+            $restrictions['externally_verified'] = 0;
+        }
+        if ($verificationViewTypes[$verificationView] == 'verified') {
+            $restrictions['externally_verified'] = 1;
         }
         if ($request->query->get('external', 'all') !== 'all') {
             $restrictions['external_result'] = $request->query->get('external');
@@ -174,7 +210,7 @@ class ShadowDifferencesController extends BaseController
 
         /** @var Submission[] $submissions */
         list($submissions, $submissionCounts) = $this->submissions->getSubmissionList(
-            $contests, $restrictions, 0, true
+            $contests, $restrictions, 0
         );
 
         $data = [
@@ -183,6 +219,8 @@ class ShadowDifferencesController extends BaseController
             'verdictTable' => $verdictTable,
             'viewTypes' => $viewTypes,
             'view' => $view,
+            'verificationViewTypes' => $verificationViewTypes,
+            'verificationView' => $verificationView,
             'submissions' => $submissions,
             'submissionCounts' => $submissionCounts,
             'external' => $request->query->get('external', 'all'),

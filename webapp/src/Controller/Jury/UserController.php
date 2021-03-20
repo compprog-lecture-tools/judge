@@ -8,6 +8,7 @@ use App\Entity\Team;
 use App\Entity\User;
 use App\Form\Type\GeneratePasswordsType;
 use App\Form\Type\UserType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Utils\Utils;
@@ -39,6 +40,11 @@ class UserController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var KernelInterface
      */
     protected $kernel;
@@ -55,8 +61,10 @@ class UserController extends BaseController
 
     /**
      * UserController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param KernelInterface        $kernel
      * @param EventLogService        $eventLogService
      * @param TokenStorageInterface  $tokenStorage
@@ -64,12 +72,14 @@ class UserController extends BaseController
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         KernelInterface $kernel,
         EventLogService $eventLogService,
         TokenStorageInterface $tokenStorage
     ) {
         $this->em              = $em;
         $this->dj              = $dj;
+        $this->config          = $config;
         $this->eventLogService = $eventLogService;
         $this->tokenStorage    = $tokenStorage;
         $this->kernel          = $kernel;
@@ -102,7 +112,7 @@ class UserController extends BaseController
 
         $propertyAccessor = PropertyAccess::createPropertyAccessor();
         $users_table      = [];
-        $timeFormat  = (string)$this->dj->dbconfig_get('time_format', '%H:%M');
+        $timeFormat  = (string)$this->config->get('time_format');
         foreach ($users as $u) {
             $userdata    = [];
             $useractions = [];
@@ -127,7 +137,7 @@ class UserController extends BaseController
                     'link' => $this->generateUrl('jury_team', [
                         'teamId' => $u->getTeamid(),
                     ]),
-                    'title' => $u->getTeam()->getName(),
+                    'title' => $u->getTeam()->getEffectiveName(),
                 ];
             }
 
@@ -262,8 +272,8 @@ class UserController extends BaseController
             throw new NotFoundHttpException(sprintf('User with ID %s not found', $userId));
         }
 
-        return $this->deleteEntity($request, $this->em, $this->dj, $this->kernel, $user, $user->getName(),
-                                   $this->generateUrl('jury_users'));
+        return $this->deleteEntity($request, $this->em, $this->dj, $this->eventLogService, $this->kernel,
+                                   $user, $user->getName(), $this->generateUrl('jury_users'));
     }
 
     /**
@@ -314,6 +324,7 @@ class UserController extends BaseController
         if ($form->isSubmitted() && $form->isValid()) {
             $groups = $form->get('group')->getData();
 
+            /** @var User[] $users */
             $users = $this->em->getRepository(User::class)->findAll();
 
             $changes = [];
@@ -341,12 +352,11 @@ class UserController extends BaseController
                  }
 
                 if ( $doit ) {
-                    $newpass = Utils::generatePassword();
+                    $newpass = Utils::generatePassword(false);
                     $user->setPlainPassword($newpass);
                     $this->dj->auditlog('user', $user->getUserid(), 'set password');
                     $changes[] = [
                             'type' => $role,
-                            'id' => $user->getUserid(),
                             'fullname' => $user->getName(),
                             'username' => $user->getUsername(),
                             'password' => $newpass,
@@ -354,12 +364,12 @@ class UserController extends BaseController
                 }
             }
             $this->em->flush();
-            $response = $this->render('jury/tsv/userdata.tsv.twig', [
+            $response = $this->render('jury/tsv/accounts.tsv.twig', [
                 'data' => $changes,
             ]);
             $disposition = $response->headers->makeDisposition(
                 ResponseHeaderBag::DISPOSITION_ATTACHMENT,
-                'userdata.tsv');
+                'accounts.tsv');
             $response->headers->set('Content-Disposition', $disposition);
             $response->headers->set('Content-Type', 'text/plain');
             return $response;

@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\AuditLog;
+use App\Entity\Balloon;
 use App\Entity\Clarification;
 use App\Entity\Configuration;
 use App\Entity\Contest;
@@ -64,6 +65,11 @@ class DOMJudgeService
      */
     protected $httpKernel;
 
+    /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
     const DATA_SOURCE_LOCAL = 0;
     const DATA_SOURCE_CONFIGURATION_EXTERNAL = 1;
     const DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL = 2;
@@ -72,6 +78,7 @@ class DOMJudgeService
 
     /**
      * DOMJudgeService constructor.
+     *
      * @param EntityManagerInterface        $em
      * @param LoggerInterface               $logger
      * @param RequestStack                  $requestStack
@@ -79,6 +86,7 @@ class DOMJudgeService
      * @param AuthorizationCheckerInterface $authorizationChecker
      * @param TokenStorageInterface         $tokenStorage
      * @param HttpKernelInterface           $httpKernel
+     * @param ConfigurationService          $config
      */
     public function __construct(
         EntityManagerInterface $em,
@@ -87,7 +95,8 @@ class DOMJudgeService
         ParameterBagInterface $params,
         AuthorizationCheckerInterface $authorizationChecker,
         TokenStorageInterface $tokenStorage,
-        HttpKernelInterface $httpKernel
+        HttpKernelInterface $httpKernel,
+        ConfigurationService $config
     ) {
         $this->em                   = $em;
         $this->logger               = $logger;
@@ -96,6 +105,7 @@ class DOMJudgeService
         $this->authorizationChecker = $authorizationChecker;
         $this->tokenStorage         = $tokenStorage;
         $this->httpKernel           = $httpKernel;
+        $this->config               = $config;
     }
 
     /**
@@ -367,44 +377,69 @@ class DOMJudgeService
     {
         $contest = $this->getCurrentContest();
 
-        $clarifications = [];
-        if ($contest) {
-            $clarifications = $this->em->createQueryBuilder()
-                ->select('clar.clarid', 'clar.body')
-                ->from(Clarification::class, 'clar')
-                ->andWhere('clar.contest = :contest')
-                ->andWhere('clar.sender is not null')
-                ->andWhere('clar.answered = 0')
-                ->setParameter('contest', $contest)
+        $clarifications  = [];
+        $judgehosts      = [];
+        $rejudgings      = [];
+        $internal_errors = [];
+        $balloons        = [];
+
+        if ($this->checkRole('jury')) {
+            if ($contest) {
+                $clarifications = $this->em->createQueryBuilder()
+                    ->select('clar.clarid', 'clar.body')
+                    ->from(Clarification::class, 'clar')
+                    ->andWhere('clar.contest = :contest')
+                    ->andWhere('clar.sender is not null')
+                    ->andWhere('clar.answered = 0')
+                    ->setParameter('contest', $contest)
+                    ->getQuery()->getResult();
+            }
+
+            $judgehosts = $this->em->createQueryBuilder()
+                ->select('j.hostname', 'j.polltime')
+                ->from(Judgehost::class, 'j')
+                ->andWhere('j.active = 1')
+                ->andWhere('j.polltime < :i')
+                ->setParameter('i', time() - $this->config->get('judgehost_critical'))
+                ->getQuery()->getResult();
+
+            $rejudgings = $this->em->createQueryBuilder()
+                ->select('r.rejudgingid, r.starttime, r.endtime')
+                ->from(Rejudging::class, 'r')
+                ->andWhere('r.endtime is null')
                 ->getQuery()->getResult();
         }
 
-        $judgehosts = $this->em->createQueryBuilder()
-            ->select('j.hostname', 'j.polltime')
-            ->from(Judgehost::class, 'j')
-            ->andWhere('j.active = 1')
-            ->andWhere('j.polltime < :i')
-            ->setParameter('i', time() - $this->dbconfig_get('judgehost_critical', 120))
-            ->getQuery()->getResult();
+        if ($this->checkrole('admin')) {
+            $internal_errors = $this->em->createQueryBuilder()
+                ->select('ie.errorid', 'ie.description')
+                ->from(InternalError::class, 'ie')
+                ->andWhere('ie.status = :status')
+                ->setParameter('status', 'open')
+                ->getQuery()->getResult();
+        }
 
-        $rejudgings = $this->em->createQueryBuilder()
-            ->select('r.rejudgingid, r.starttime, r.endtime')
-            ->from(Rejudging::class, 'r')
-            ->andWhere('r.endtime is null')
+        if ($this->checkrole('balloon')) {
+            $balloons = $this->em->createQueryBuilder()
+            ->select('b.balloonid', 't.name', 't.room', 'p.name AS pname')
+            ->from(Balloon::class, 'b')
+            ->leftJoin('b.submission', 's')
+            ->leftJoin('s.problem', 'p')
+            ->leftJoin('s.contest', 'co')
+            ->leftJoin('p.contest_problems', 'cp', Join::WITH, 'co.cid = cp.contest AND p.probid = cp.problem')
+            ->leftJoin('s.team', 't')
+            ->andWhere('co.cid = :cid')
+            ->andWhere('b.done = 0')
+            ->setParameter(':cid', $contest->getCid())
             ->getQuery()->getResult();
-
-        $internal_error = $this->em->createQueryBuilder()
-            ->select('ie.errorid', 'ie.description')
-            ->from(InternalError::class, 'ie')
-            ->andWhere('ie.status = :status')
-            ->setParameter('status', 'open')
-            ->getQuery()->getResult();
+        }
 
         return [
             'clarifications' => $clarifications,
             'judgehosts' => $judgehosts,
             'rejudgings' => $rejudgings,
-            'internal_error' => $internal_error,
+            'internal_errors' => $internal_errors,
+            'balloons' => $balloons
         ];
     }
 
@@ -611,21 +646,21 @@ class DOMJudgeService
     }
 
     /**
-     * Get the submit directory of this DOMjudge installation
-     * @return string
-     */
-    public function getDomjudgeSubmitDir(): string
-    {
-        return $this->params->get('domjudge.submitdir');
-    }
-
-    /**
      * Get the webapp directory of this DOMjudge installation
      * @return string
      */
     public function getDomjudgeWebappDir(): string
     {
         return $this->params->get('domjudge.webappdir');
+    }
+
+    /**
+     * Get the directory used for storing cache files
+     * @return string
+     */
+    public function getCacheDir(): string
+    {
+        return $this->params->get('kernel.cache_dir');
     }
 
     /**
@@ -673,7 +708,7 @@ class DOMJudgeService
         ?int $teamid = null,
         ?string $location = null
     ): array {
-        $printCommand = $this->dbconfig_get('print_command', '');
+        $printCommand = $this->config->get('print_command');
         if (empty($printCommand)) {
             return [false, 'Printing not enabled'];
         }
@@ -757,5 +792,84 @@ class DOMJudgeService
         $zip->close();
 
         return $tempFilename;
+    }
+
+    /**
+     * @param Contest $contest
+     * @return array
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
+     */
+    public function getContestStats(Contest $contest): array
+    {
+        $stats = [];
+        $stats['num_submissions'] = (int)$this->em
+            ->createQuery(
+                'SELECT COUNT(s)
+                FROM App\Entity\Submission s
+                WHERE s.cid = :cid')
+            ->setParameter(':cid', $contest->getCid())
+            ->getSingleScalarResult();
+        $stats['num_queued'] = (int)$this->em
+            ->createQuery(
+                'SELECT COUNT(s)
+                FROM App\Entity\Submission s
+                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid AND j.valid != 0)
+                WHERE s.cid = :cid
+                AND j.result IS NULL
+                AND s.valid = 1')
+            ->setParameter(':cid', $contest->getCid())
+            ->getSingleScalarResult();
+        $stats['num_judging'] = (int)$this->em
+            ->createQuery(
+                'SELECT COUNT(s)
+                FROM App\Entity\Submission s
+                LEFT JOIN App\Entity\Judging j WITH (j.submitid = s.submitid)
+                WHERE s.cid = :cid
+                AND j.result IS NULL
+                AND j.valid = 1
+                AND s.valid = 1')
+            ->setParameter(':cid', $contest->getCid())
+            ->getSingleScalarResult();
+        return $stats;
+    }
+
+    public function getTwigDataForProblemsAction(int $teamId): array {
+        $contest            = $this->getCurrentContest($teamId);
+        $showLimits         = (bool)$this->config->get('show_limits_on_team_page');
+        $defaultMemoryLimit = (int)$this->config->get('memory_limit');
+        $timeFactorDiffers  = false;
+        if ($showLimits) {
+            $timeFactorDiffers = $this->em->createQueryBuilder()
+                    ->from(Language::class, 'l')
+                    ->select('COUNT(l)')
+                    ->andWhere('l.allowSubmit = true')
+                    ->andWhere('l.timeFactor <> 1')
+                    ->getQuery()
+                    ->getSingleScalarResult() > 0;
+        }
+
+        $problems = [];
+        if ($contest && $contest->getFreezeData()->started()) {
+            $problems = $this->em->createQueryBuilder()
+                ->from(ContestProblem::class, 'cp')
+                ->join('cp.problem', 'p')
+                ->leftJoin('p.testcases', 'tc')
+                ->select('partial p.{probid,name,externalid,problemtext_type,timelimit,memlimit}', 'cp', 'SUM(tc.sample) AS numsamples')
+                ->andWhere('cp.contest = :contest')
+                ->andWhere('cp.allowSubmit = 1')
+                ->setParameter(':contest', $contest)
+                ->addOrderBy('cp.shortname')
+                ->groupBy('cp.problem')
+                ->getQuery()
+                ->getResult();
+        }
+
+        return [
+            'problems' => $problems,
+            'showLimits' => $showLimits,
+            'defaultMemoryLimit' => $defaultMemoryLimit,
+            'timeFactorDiffers' => $timeFactorDiffers,
+        ];
     }
 }

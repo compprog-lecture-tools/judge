@@ -7,6 +7,7 @@ use App\Entity\Language;
 use App\Entity\Problem;
 use App\Entity\Submission;
 use App\Entity\SubmissionFile;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\SubmissionService;
@@ -15,6 +16,7 @@ use Doctrine\ORM\QueryBuilder;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Security;
 use Swagger\Annotations as SWG;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -41,10 +43,11 @@ class SubmissionController extends AbstractRestController
     public function __construct(
         EntityManagerInterface $entityManager,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         SubmissionService $submissionService
     ) {
-        parent::__construct($entityManager, $dj, $eventLogService);
+        parent::__construct($entityManager, $dj, $config, $eventLogService);
         $this->submissionService = $submissionService;
     }
 
@@ -53,7 +56,6 @@ class SubmissionController extends AbstractRestController
      * @param Request $request
      * @return \Symfony\Component\HttpFoundation\Response
      * @Rest\Get("")
-     * @IsGranted({"ROLE_JURY", "ROLE_JUDGEHOST", "ROLE_API_READER"})
      * @SWG\Response(
      *     response="200",
      *     description="Returns all the submissions for this contest",
@@ -68,6 +70,7 @@ class SubmissionController extends AbstractRestController
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/idlist")
+     * @SWG\Parameter(ref="#/parameters/strict")
      * @SWG\Parameter(
      *     name="language_id",
      *     in="query",
@@ -88,7 +91,6 @@ class SubmissionController extends AbstractRestController
      * @return \Symfony\Component\HttpFoundation\Response
      * @throws \Doctrine\ORM\NonUniqueResultException
      * @Rest\Get("/{id}")
-     * @IsGranted({"ROLE_JURY", "ROLE_JUDGEHOST", "ROLE_API_READER"})
      * @SWG\Response(
      *     response="200",
      *     description="Returns the given submission for this contest",
@@ -100,6 +102,7 @@ class SubmissionController extends AbstractRestController
      *     )
      * )
      * @SWG\Parameter(ref="#/parameters/id")
+     * @SWG\Parameter(ref="#/parameters/strict")
      */
     public function singleAction(Request $request, string $id)
     {
@@ -206,7 +209,7 @@ class SubmissionController extends AbstractRestController
                 sprintf("Language %s not found or or not submittable", $request->request->get('language')));
         }
 
-        // Determine the entry pooint
+        // Determine the entry point
         $entryPoint = null;
         if ($language->getRequireEntryPoint()) {
             if (!$request->request->get('entry_point')) {
@@ -271,44 +274,13 @@ class SubmissionController extends AbstractRestController
 
         $submission = reset($submissions);
 
-        /** @var SubmissionFile[] $files */
-        $files = $submission->getFiles();
-        $zip   = new \ZipArchive;
-        if (!($tmpfname = tempnam($this->dj->getDomjudgeTmpDir(), "submission_file-"))) {
-            return new Response("Could not create temporary file.", Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-
-        $res = $zip->open($tmpfname, \ZipArchive::OVERWRITE);
-        if ($res !== true) {
-            return new Response("Could not create temporary zip file.", Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-        foreach ($files as $file) {
-            $zip->addFromString($file->getFilename(), $file->getSourcecode());
-        }
-        $zip->close();
-
-        $filename = 's' . $submission->getSubmitid() . '.zip';
-
-        $response = new StreamedResponse();
-        $response->setCallback(function () use ($tmpfname) {
-            $fp = fopen($tmpfname, 'rb');
-            fpassthru($fp);
-            unlink($tmpfname);
-        });
-        $response->headers->set('Content-Type', 'application/zip');
-        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
-        $response->headers->set('Content-Length', filesize($tmpfname));
-        $response->headers->set('Content-Transfer-Encoding', 'binary');
-        $response->headers->set('Connection', 'Keep-Alive');
-        $response->headers->set('Accept-Ranges', 'bytes');
-
-        return $response;
+        return $this->submissionService->getSubmissionZipResponse($submission);
     }
 
     /**
      * Get the source code of all the files for the given submission
      * @Rest\Get("/{id}/source-code")
-     * @IsGranted({"ROLE_JUDGEHOST", "ROLE_JURY"})
+     * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_JUDGEHOST')")
      * @param Request $request
      * @param string  $id
      * @return array
@@ -363,9 +335,11 @@ class SubmissionController extends AbstractRestController
         $queryBuilder = $this->em->createQueryBuilder()
             ->from(Submission::class, 's')
             ->join('s.contest', 'c')
+            ->join('s.team', 't')
             ->select('s')
             ->andWhere('s.valid = 1')
             ->andWhere('s.cid = :cid')
+            ->andWhere('t.enabled = 1')
             ->setParameter(':cid', $cid)
             ->orderBy('s.submitid');
 
@@ -379,6 +353,21 @@ class SubmissionController extends AbstractRestController
         // This allows us to use eventlog on too-late submissions while not exposing them in the API directly
         if (!$request->attributes->has('id') && !$request->query->has('ids')) {
             $queryBuilder->andWhere('s.submittime < c.endtime');
+        }
+
+        if (!$this->dj->checkrole('api_reader') &&
+            !$this->dj->checkrole('judgehost'))
+        {
+            $queryBuilder
+                ->join('t.category', 'cat');
+            if ($this->dj->checkrole('team')) {
+                $queryBuilder
+                    ->andWhere('cat.visible = 1 OR s.team = :team')
+                    ->setParameter('team', $this->dj->getUser()->getTeam());
+            } else {
+                // Hide all submissions made by non public teams
+                $queryBuilder->andWhere('cat.visible = 1');
+            }
         }
 
         return $queryBuilder;

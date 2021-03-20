@@ -11,6 +11,7 @@ DOMjudge Manual
    install-workstation
    upgrading
    config-basic
+   import
    config-advanced
    running
    judging
@@ -21,4 +22,7 @@ Appendices
 
 .. toctree::
    quick-install
+   team
    problem-format
+   shadow
+   configuration-reference

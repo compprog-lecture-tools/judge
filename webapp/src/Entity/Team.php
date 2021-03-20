@@ -3,7 +3,6 @@
 namespace App\Entity;
 
 use Doctrine\Common\Collections\ArrayCollection;
-use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use JMS\Serializer\Annotation as Serializer;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
@@ -21,14 +20,9 @@ use Symfony\Component\Validator\Context\ExecutionContextInterface;
  *         @ORM\Index(name="categoryid", columns={"categoryid"})
  *     },
  *     uniqueConstraints={
- *         @ORM\UniqueConstraint(name="externalid", columns={"externalid"}, options={"lengths": {"190"}}),
+ *         @ORM\UniqueConstraint(name="icpcid", columns={"icpcid"}, options={"lengths": {"190"}}),
  *     })
- * @Serializer\VirtualProperty(
- *     "externalid_nonstrict",
- *     exp="object.getExternalId()",
- *     options={@Serializer\SerializedName("externalid"), @Serializer\Type("string"), @Serializer\Groups({"Nonstrict"})}
- * )
- * @UniqueEntity("externalid")
+ * @UniqueEntity("icpcid")
  */
 class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
 {
@@ -45,11 +39,11 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
 
     /**
      * @var string
-     * @ORM\Column(type="string", name="externalid", length=255, options={"comment"="Team ID in an external system",
+     * @ORM\Column(type="string", name="icpcid", length=255, options={"comment"="Team ID in the ICPC system",
      *                            "collation"="utf8mb4_bin","default"="NULL"}, nullable=true)
      * @Serializer\SerializedName("icpc_id")
      */
-    protected $externalid;
+    protected $icpcid;
 
     /**
      * @var string
@@ -57,6 +51,13 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
      *                            nullable=false)
      */
     private $name;
+
+    /**
+     * @var string|null
+     * @ORM\Column(type="string", name="display_name", length=255, options={"comment"="Team display name", "collation"="utf8mb4_bin"},
+     *                            nullable=true)
+     */
+    private $display_name;
 
     /**
      * @var int
@@ -211,27 +212,27 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
     }
 
     /**
-     * Set externalid
+     * Set icpcid
      *
-     * @param string $externalid
+     * @param string $icpcid
      *
      * @return Team
      */
-    public function setExternalid($externalid)
+    public function setIcpcid($icpcid)
     {
-        $this->externalid = $externalid;
+        $this->icpcid = $icpcid;
 
         return $this;
     }
 
     /**
-     * Get externalid
+     * Get icpcid
      *
      * @return string
      */
-    public function getExternalid()
+    public function getIcpcid()
     {
-        return $this->externalid;
+        return $this->icpcid;
     }
 
     /**
@@ -256,6 +257,37 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
     public function getName()
     {
         return $this->name;
+    }
+
+    /**
+     * Set display name
+     * @param string|null $display_name
+     *
+     * @return $this
+     */
+    public function setDisplayName(?string $display_name): self
+    {
+        $this->display_name = $display_name;
+
+        return $this;
+    }
+
+    /**
+     * Get display name
+     * @return string|null
+     */
+    public function getDisplayName(): ?string
+    {
+        return $this->display_name;
+    }
+
+    /**
+     * Get the effective name of this team
+     * @return string
+     */
+    public function getEffectiveName(): string
+    {
+        return $this->getDisplayName() ?? $this->getName();
     }
 
     /**
@@ -775,7 +807,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
      * @Serializer\VirtualProperty()
      * @Serializer\Type("string")
      * @Serializer\Groups({"Nonstrict"})
-     * @Serializer\Expose(if="context.getAttribute('domjudge_service').dbconfig_get('show_flags', true)")
+     * @Serializer\Expose(if="context.getAttribute('config_service').get('show_flags')")
      */
     public function getNationality()
     {
@@ -821,5 +853,19 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface
                     ->addViolation();
             }
         }
+    }
+
+    /**
+     * Check if this team belongs to the given contest
+     *
+     * @param Contest $contest
+     *
+     * @return bool
+     */
+    public function inContest(Contest $contest): bool
+    {
+        return $contest->isOpenToAllTeams() ||
+            $this->getContests()->contains($contest) ||
+            ($this->getCategory() !== null && $this->getCategory()->inContest($contest));
     }
 }

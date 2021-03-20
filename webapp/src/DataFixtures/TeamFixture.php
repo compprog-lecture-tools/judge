@@ -4,7 +4,7 @@ namespace App\DataFixtures;
 
 use App\Entity\Team;
 use Doctrine\Common\DataFixtures\DependentFixtureInterface;
-use Doctrine\Common\Persistence\ObjectManager;
+use Doctrine\Persistence\ObjectManager;
 
 /**
  * Class TeamFixture
@@ -21,7 +21,7 @@ class TeamFixture extends AbstractExampleDataFixture implements DependentFixture
     {
         $team = new Team();
         $team
-            ->setExternalid('exteam')
+            ->setIcpcid('exteam')
             ->setName('Example teamname')
             ->setAffiliation($this->getReference(TeamAffiliationFixture::AFFILIATION_REFERENCE))
             ->setCategory($this->getReference(TeamCategoryFixture::PARTICIPANTS_REFERENCE));

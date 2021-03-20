@@ -10,8 +10,10 @@ use App\Entity\TeamCategory;
 use App\Form\Type\BaylorCmsType;
 use App\Form\Type\ContestExportType;
 use App\Form\Type\ContestImportType;
+use App\Form\Type\JsonImportType;
 use App\Form\Type\TsvImportType;
 use App\Service\BaylorCmsService;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ImportExportService;
@@ -62,6 +64,11 @@ class ImportExportController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EventLogService
      */
     protected $eventLogService;
@@ -71,11 +78,13 @@ class ImportExportController extends BaseController
 
     /**
      * ImportExportController constructor.
+     *
      * @param BaylorCmsService       $baylorCmsService
      * @param ImportExportService    $importExportService
      * @param EntityManagerInterface $em
      * @param ScoreboardService      $scoreboardService
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EventLogService        $eventLogService
      * @param string                 $domjudgeVersion
      */
@@ -85,6 +94,7 @@ class ImportExportController extends BaseController
         EntityManagerInterface $em,
         ScoreboardService $scoreboardService,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EventLogService $eventLogService,
         string $domjudgeVersion
     ) {
@@ -93,6 +103,7 @@ class ImportExportController extends BaseController
         $this->em                  = $em;
         $this->scoreboardService   = $scoreboardService;
         $this->dj                  = $dj;
+        $this->config              = $config;
         $this->eventLogService     = $eventLogService;
         $this->domjudgeVersion     = $domjudgeVersion;
     }
@@ -113,6 +124,22 @@ class ImportExportController extends BaseController
             $type  = $tsvForm->get('type')->getData();
             $file  = $tsvForm->get('file')->getData();
             $count = $this->importExportService->importTsv($type, $file, $message);
+            if ($count >= 0) {
+                $this->addFlash('success', sprintf('%d items imported', $count));
+            } else {
+                $this->addFlash('danger', $message);
+            }
+            return $this->redirectToRoute('jury_import_export');
+        }
+
+        $jsonForm = $this->createForm(JsonImportType::class);
+
+        $jsonForm->handleRequest($request);
+
+        if ($jsonForm->isSubmitted() && $jsonForm->isValid()) {
+            $type  = $jsonForm->get('type')->getData();
+            $file  = $jsonForm->get('file')->getData();
+            $count = $this->importExportService->importJson($type, $file, $message);
             if ($count >= 0) {
                 $this->addFlash('success', sprintf('%d items imported', $count));
             } else {
@@ -159,6 +186,7 @@ class ImportExportController extends BaseController
 
         return $this->render('jury/import_export.html.twig', [
             'tsv_form' => $tsvForm->createView(),
+            'json_form' => $jsonForm->createView(),
             'baylor_form' => $baylorForm->createView(),
             'sort_orders' => $sortOrders,
         ]);
@@ -250,9 +278,11 @@ class ImportExportController extends BaseController
         $response = new StreamedResponse();
         $response->setCallback(function () use ($type, $version, $data) {
             echo sprintf("%s\t%s\n", $type, $version);
-            // output the rows, filtering out any tab characters in the data
+            // output the rows, escaping any reserved characters in the data
             foreach ($data as $row) {
-                echo implode("\t", str_replace("\t", " ", $row)) . "\n";
+                echo implode("\t", array_map(function ($field) {
+                    return Utils::toTsvField((string)$field);
+                }, $row)) . "\n";
             }
         });
         $filename = sprintf('%s.tsv', $type);
@@ -311,15 +341,15 @@ class ImportExportController extends BaseController
             throw new BadRequestHttpException('No current contest');
         }
 
-        $scoreIsInSeconds = (bool)$this->dj->dbconfig_get('score_in_seconds', false);
+        $scoreIsInSeconds = (bool)$this->config->get('score_in_seconds');
         $filter           = new Filter();
-        $filter->setCategories($categoryIds);
+        $filter->categories = $categoryIds;
         $scoreboard = $this->scoreboardService->getScoreboard($contest, true, $filter);
         $teams      = $scoreboard->getTeams();
 
         $teamNames = [];
         foreach ($teams as $team) {
-            $teamNames[$team->getExternalid() ?? $team->getTeamid()] = $team->getName();
+            $teamNames[$team->getApiId($this->eventLogService)] = $team->getEffectiveName();
         }
 
         $awarded       = [];
@@ -386,12 +416,12 @@ class ImportExportController extends BaseController
 
                 /** @var ScoreboardMatrixItem $matrixItem */
                 $matrixItem = $matrix[$team->getTeamid()][$problem->getProbid()];
-                if ($matrixItem->isCorrect() && $scoreboard->solvedFirst($team, $problem)) {
+                if ($matrixItem->isCorrect && $scoreboard->solvedFirst($team, $problem)) {
                     $firstToSolve[$problem->getProbid()] = [
                         'problem' => $problem->getShortname(),
                         'problem_name' => $problem->getProblem()->getName(),
                         'team' => $teamNames[$team->getApiId($this->eventLogService)],
-                        'time' => Utils::scoretime($matrixItem->getTime(), $scoreIsInSeconds),
+                        'time' => Utils::scoretime($matrixItem->time, $scoreIsInSeconds),
                     ];
                 }
             }
@@ -446,13 +476,13 @@ class ImportExportController extends BaseController
             throw new BadRequestHttpException('No current contest');
         }
 
-        $queues              = (array)$this->dj->dbconfig_get('clar_queues');
+        $queues              = (array)$this->config->get('clar_queues');
         $clarificationQueues = [null => 'Unassigned issues'];
         foreach ($queues as $key => $val) {
             $clarificationQueues[$key] = $val;
         }
 
-        $categories = (array)$this->dj->dbconfig_get('clar_categories');
+        $categories = (array)$this->config->get('clar_categories');
 
         $clarificationCategories = [];
         foreach ($categories as $key => $val) {

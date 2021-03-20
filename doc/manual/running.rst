@@ -102,10 +102,23 @@ you wish to do something special with these cases.
 
 Normally balloon distribution stops when the scoreboard is frozen.
 This will be indicated in the interface and no new entries will
-show for submissions after the freeze. It is possibe that new
+show for submissions after the freeze. It is possible that new
 entries appear for some times after the freeze, if the result of
 a submission before the freeze is only known after (this can also
 happen in case of a :ref:`rejudging`).
 The global configuration option ``show_balloons_postfreeze`` will
 ignore a contest freeze for purposes of balloons and new correct
 submissions will trigger a balloon entry in the table.
+
+Static scoreboard
+-----------------
+The public scoreboard can be output in 'static' form meaning it does
+not contain any interactive elements or refresh facilities. This you
+can use if you need to publish the scoreboard as an HTML webpage
+somewhere externally.
+
+To get the static version, add ``?static=1`` as an URL parameter to
+the ``public/`` scoreboard URL. You can additionally add a
+``&contest=`` with the contest ID of a specific contest to output.
+The contest ID can also be the special value ``auto`` which selects
+the most recently activated contest.

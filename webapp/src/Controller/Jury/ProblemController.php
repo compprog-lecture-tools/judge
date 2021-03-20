@@ -13,6 +13,7 @@ use App\Entity\TestcaseContent;
 use App\Form\Type\ProblemType;
 use App\Form\Type\ProblemUploadMultipleType;
 use App\Form\Type\ProblemUploadType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\ImportProblemService;
@@ -52,6 +53,11 @@ class ProblemController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var KernelInterface
      */
     protected $kernel;
@@ -73,8 +79,10 @@ class ProblemController extends BaseController
 
     /**
      * ProblemController constructor.
+     *
      * @param EntityManagerInterface $em
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param KernelInterface        $kernel
      * @param EventLogService        $eventLogService
      * @param SubmissionService      $submissionService
@@ -83,6 +91,7 @@ class ProblemController extends BaseController
     public function __construct(
         EntityManagerInterface $em,
         DOMJudgeService $dj,
+        ConfigurationService $config,
         KernelInterface $kernel,
         EventLogService $eventLogService,
         SubmissionService $submissionService,
@@ -90,6 +99,7 @@ class ProblemController extends BaseController
     ) {
         $this->em                   = $em;
         $this->dj                   = $dj;
+        $this->config               = $config;
         $this->kernel               = $kernel;
         $this->eventLogService      = $eventLogService;
         $this->submissionService    = $submissionService;
@@ -498,12 +508,12 @@ class ProblemController extends BaseController
             'problem' => $problem,
             'submissions' => $submissions,
             'submissionCounts' => $submissionCounts,
-            'defaultMemoryLimit' => (int)$this->dj->dbconfig_get('memory_limit'),
-            'defaultOutputLimit' => (int)$this->dj->dbconfig_get('output_limit'),
-            'defaultRunExecutable' => (string)$this->dj->dbconfig_get('default_run'),
-            'defaultCompareExecutable' => (string)$this->dj->dbconfig_get('default_compare'),
+            'defaultMemoryLimit' => (int)$this->config->get('memory_limit'),
+            'defaultOutputLimit' => (int)$this->config->get('output_limit'),
+            'defaultRunExecutable' => (string)$this->config->get('default_run'),
+            'defaultCompareExecutable' => (string)$this->config->get('default_compare'),
             'showContest' => count($this->dj->getCurrentContests()) > 1,
-            'showExternalResult' => $this->dj->dbconfig_get('data_source', DOMJudgeService::DATA_SOURCE_LOCAL) ==
+            'showExternalResult' => $this->config->get('data_source') ==
                 DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL,
             'refresh' => [
                 'after' => 15,
@@ -596,8 +606,8 @@ class ProblemController extends BaseController
         if ($request->isMethod('POST')) {
             $messages      = [];
             $maxrank       = 0;
-            $outputLimit   = $this->dj->dbconfig_get('output_limit');
-            $thumbnailSize = $this->dj->dbconfig_get('thumbnail_size', 128);
+            $outputLimit   = $this->config->get('output_limit');
+            $thumbnailSize = $this->config->get('thumbnail_size');
             foreach ($testcases as $rank => $testcase) {
                 $newSample = isset($request->request->get('sample')[$rank]);
                 if ($newSample !== $testcase->getSample()) {
@@ -675,23 +685,32 @@ class ProblemController extends BaseController
             $maxrank++;
 
             $allOk = true;
+            $inputOrOutputSpecified = false;
             foreach (['input', 'output'] as $type) {
-                if (!$file = $request->files->get('add_' . $type)) {
-                    $messages[] = sprintf(
-                        'Warning: new %s file was not selected, not adding new testcase',
-                        $type
-                    );
-                    $allOk      = false;
-                } elseif (!$file->isValid()) {
-                    $this->addFlash('danger', sprintf(
-                        'File upload error new %s: %s. No changes made.',
-                        $type, $file->getErrorMessage()
-                    ));
-                    return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
+                if ($file = $request->files->get('add_' . $type)) {
+                    $inputOrOutputSpecified = true;
+                }
+            }
+            if ($inputOrOutputSpecified) {
+                foreach (['input', 'output'] as $type) {
+                    if (!$file = $request->files->get('add_' . $type)) {
+                        $messages[] = sprintf(
+                            'Warning: new %s file was not selected, not adding new testcase',
+                            $type
+                        );
+                        $allOk = false;
+                    } elseif (!$file->isValid()) {
+                        $this->addFlash('danger', sprintf(
+                            'File upload error new %s: %s. No changes made.',
+                            $type, $file->getErrorMessage()
+                        ));
+                        return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
+                    }
                 }
             }
 
-            if ($allOk) {
+            $haswarnings = false;
+            if ($inputOrOutputSpecified && $allOk) {
                 $newTestcase        = new Testcase();
                 $newTestcaseContent = new TestcaseContent();
                 $newTestcase
@@ -750,7 +769,6 @@ class ProblemController extends BaseController
                     $inFile->getClientOriginalName(),  Utils::printsize($inFile->getSize()),
                     $outFile->getClientOriginalName(), Utils::printsize($outFile->getSize())
                 );
-                $haswarnings = false;
 
                 if (strlen($newTestcaseContent->getOutput()) > $outputLimit * 1024) {
                     $message .= sprintf(
@@ -827,6 +845,8 @@ class ProblemController extends BaseController
         /** @var Testcase|null $current */
         $current = null;
 
+        $numTestcases = count($testcases);
+
         foreach ($testcases as $testcaseRank => $testcase) {
             if ($testcaseRank == $rank) {
                 $current = $testcase;
@@ -844,11 +864,11 @@ class ProblemController extends BaseController
 
         if ($current !== null && $other !== null) {
             // (probid, rank) is a unique key, so we must switch via a temporary rank, and use a transaction.
-            $this->em->transactional(function () use ($current, $other) {
+            $this->em->transactional(function () use ($current, $other, $numTestcases) {
                 $otherRank   = $other->getRank();
                 $currentRank = $current->getRank();
-                $other->setRank(-1);
-                $current->setRank(-2);
+                $other->setRank($numTestcases + 1);
+                $current->setRank($numTestcases + 2);
                 $this->em->flush();
                 $current->setRank($otherRank);
                 $other->setRank($currentRank);
@@ -1025,8 +1045,41 @@ class ProblemController extends BaseController
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
         }
 
-        return $this->deleteEntity($request, $this->em, $this->dj, $this->kernel, $problem,
-                                   $problem->getName(), $this->generateUrl('jury_problems'));
+        return $this->deleteEntity($request, $this->em, $this->dj, $this->eventLogService, $this->kernel,
+                                   $problem, $problem->getName(), $this->generateUrl('jury_problems'));
+    }
+
+    /**
+     * @Route("/{testcaseId<\d+>}/delete_testcase", name="jury_testcase_delete")
+     * @IsGranted("ROLE_ADMIN")
+     * @param Request $request
+     * @param int     $probId
+     * @return \Symfony\Component\HttpFoundation\RedirectResponse|\Symfony\Component\HttpFoundation\Response
+     * @throws Exception
+     */
+    public function deleteTestcaseAction(Request $request, int $testcaseId)
+    {
+        /** @var Testcase $testcase */
+        $testcase = $this->em->getRepository(Testcase::class)->find($testcaseId);
+        if (!$testcase) {
+            throw new NotFoundHttpException(sprintf('Testcase with ID %s not found', $testcaseId));
+        }
+        $testcase->setDeleted(true);
+        $probId = $testcase->getProbid();
+        $testcase->setProbid(null);
+        $oldRank = $testcase->getRank();
+
+        /** @var Testcase[] $testcases */
+        $testcases = $this->em->getRepository(Testcase::class)
+            ->findBy(['probid' => $probId], ['rank' => 'ASC']);
+        foreach ($testcases as $testcase) {
+            if ($testcase->getRank() > $oldRank) {
+                $testcase->setRank($testcase->getRank() - 1);
+            }
+        }
+        $this->em->flush();
+        $this->addFlash('danger', sprintf('Testcase %d removed from problem %s. Consider rejudging the problem.', $testcaseId, $probId));
+        return $this->redirectToRoute('jury_problem_testcases', ['probId' => $probId]);
     }
 
     /**

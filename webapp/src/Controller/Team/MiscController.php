@@ -6,10 +6,10 @@ use App\Controller\BaseController;
 use App\Entity\Clarification;
 use App\Entity\Language;
 use App\Form\Type\PrintType;
+use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\ScoreboardService;
 use App\Service\SubmissionService;
-use App\Utils\Printing;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\NoResultException;
@@ -41,6 +41,11 @@ class MiscController extends BaseController
     protected $dj;
 
     /**
+     * @var ConfigurationService
+     */
+    protected $config;
+
+    /**
      * @var EntityManagerInterface
      */
     protected $em;
@@ -57,18 +62,22 @@ class MiscController extends BaseController
 
     /**
      * MiscController constructor.
+     *
      * @param DOMJudgeService        $dj
+     * @param ConfigurationService   $config
      * @param EntityManagerInterface $em
      * @param ScoreboardService      $scoreboardService
      * @param SubmissionService      $submissionService
      */
     public function __construct(
         DOMJudgeService $dj,
+        ConfigurationService $config,
         EntityManagerInterface $em,
         ScoreboardService $scoreboardService,
         SubmissionService $submissionService
     ) {
         $this->dj                = $dj;
+        $this->config            = $config;
         $this->em                = $em;
         $this->scoreboardService = $scoreboardService;
         $this->submissionService = $submissionService;
@@ -97,7 +106,7 @@ class MiscController extends BaseController
                 'url' => $this->generateUrl('team_index'),
                 'ajax' => true,
             ],
-            'maxWidth' => $this->dj->dbconfig_get('team_column_width', 0),
+            'maxWidth' => $this->config->get('team_column_width'),
         ];
         if ($contest) {
             $scoreboard = $this->scoreboardService
@@ -110,7 +119,7 @@ class MiscController extends BaseController
                 )
             );
             $data['limitToTeams'] = [$team];
-            $data['verificationRequired'] = $this->dj->dbconfig_get('verification_required', false);
+            $data['verificationRequired'] = $this->config->get('verification_required');
             // We need to clear the entity manager, because loading the team scoreboard seems to break getting submission
             // contestproblems for the contest we get the scoreboard for
             $this->em->clear();
@@ -155,7 +164,7 @@ class MiscController extends BaseController
 
             $data['clarifications']        = $clarifications;
             $data['clarificationRequests'] = $clarificationRequests;
-            $data['categories']            = $this->dj->dbconfig_get('clar_categories');
+            $data['categories']            = $this->config->get('clar_categories');
         }
 
         if ($request->isXmlHttpRequest()) {
@@ -178,7 +187,7 @@ class MiscController extends BaseController
         if ($this->isLocalReferrer($router, $request)) {
             $response = new RedirectResponse($request->headers->get('referer'));
         } else {
-            $response = $this->redirectToRoute('public_index');
+            $response = $this->redirectToRoute('team_index');
         }
         return $this->dj->setCookie('domjudge_cid', (string)$contestId, 0, null, '', false, false,
                                                  $response);
@@ -192,7 +201,7 @@ class MiscController extends BaseController
      */
     public function printAction(Request $request)
     {
-        if (!$this->dj->dbconfig_get('print_command', '')) {
+        if (!$this->config->get('print_command')) {
             throw new AccessDeniedHttpException("Printing disabled in config");
         }
 
@@ -212,7 +221,7 @@ class MiscController extends BaseController
 
             $team = $this->dj->getUser()->getTeam();
             $ret  = $this->dj->printFile($realfile, $originalfilename, $langid,
-                $username, $team->getName(), $team->getTeamid(), $team->getRoom());
+                $username, $team->getEffectiveName(), $team->getTeamid(), $team->getRoom());
 
             return $this->render('team/print_result.html.twig', [
                 'success' => $ret[0],

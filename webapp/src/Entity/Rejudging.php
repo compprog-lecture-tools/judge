@@ -4,6 +4,7 @@ namespace App\Entity;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
+use JMS\Serializer\Annotation as Serializer;
 
 /**
  * Rejudge group
@@ -108,6 +109,42 @@ class Rejudging
      * @ORM\OneToMany(targetEntity="App\Entity\Submission", mappedBy="rejudging")
      */
     private $submissions;
+
+    /**
+     * @var boolean
+     * @ORM\Column(type="boolean", name="auto_apply",
+     *     options={"comment"="If set, judgings are accepted automatically.",
+     *              "default"="0"},
+     *     nullable=false)
+     */
+    private $autoApply = true;
+
+    /**
+     * @var int
+     *
+     * @ORM\Column(type="integer", name="`repeat`",
+     *     options={"comment"="Number of times this rejudging will be repeated.",
+     *              "unsigned"=true,"default"="NULL"},
+     *     nullable=true)
+     */
+    private $repeat;
+
+    /**
+     * @var int
+     *
+     * @ORM\Column(type="integer", name="repeat_rejudgingid",
+     *     options={"comment"="In case repeat is set, this will mark the first rejudgingid.",
+     *              "unsigned"=true,"default"="NULL"},
+     *     nullable=true)
+     */
+    private $repeat_rejudgingid;
+
+    /**
+     * @ORM\ManyToOne(targetEntity="Rejudging")
+     * @ORM\JoinColumn(name="repeat_rejudgingid", referencedColumnName="rejudgingid", onDelete="SET NULL")
+     * @Serializer\Exclude()
+     */
+    private $repeatedRejudging;
 
     /**
      * Constructor
@@ -386,5 +423,77 @@ class Rejudging
     public function getSubmissions()
     {
         return $this->submissions;
+    }
+
+    /**
+     * Set auto_apply
+     *
+     * @param boolean $autoApply
+     *
+     * @return Rejudging
+     */
+    public function setAutoApply(bool $autoApply)
+    {
+        $this->autoApply = $autoApply;
+
+        return $this;
+    }
+
+    /**
+     * Get auto_apply
+     *
+     * @return boolean
+     */
+    public function getAutoApply()
+    {
+        return $this->autoApply;
+    }
+
+    /**
+     * Set repeat
+     *
+     * @param int $repeat
+     *
+     * @return Rejudging
+     */
+    public function setRepeat(int $repeat)
+    {
+        $this->repeat = $repeat;
+
+        return $this;
+    }
+
+    /**
+     * Get repeat
+     *
+     * @return int
+     */
+    public function getRepeat()
+    {
+        return $this->repeat;
+    }
+
+    /**
+     * Set repeat_rejudgingid
+     *
+     * @param int $repeat_rejudgingid
+     *
+     * @return Rejudging
+     */
+    public function setRepeatRejudgingId(int $repeatRejudgingId)
+    {
+        $this->repeat_rejudgingid = $repeatRejudgingId;
+
+        return $this;
+    }
+
+    /**
+     * Get repeat
+     *
+     * @return int
+     */
+    public function getRepeatRejudgingId()
+    {
+        return $this->repeat_rejudgingid;
     }
 }

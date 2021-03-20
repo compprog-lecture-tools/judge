@@ -498,21 +498,6 @@ class Problem extends BaseApiEntity
     }
 
     /**
-     * Get whether this problem has a problem text
-     * @return bool
-     */
-    public function hasProblemtext()
-    {
-        if (is_string($this->problemtext)) {
-            return !empty($this->problemtext);
-        } elseif (is_resource($this->problemtext)) {
-            return fstat($this->problemtext)['size'] > 0;
-        } else {
-            return false;
-        }
-    }
-
-    /**
      * Set problemtextType
      *
      * @param string $problemtextType
@@ -657,7 +642,7 @@ class Problem extends BaseApiEntity
     /**
      * Get contestProblems
      *
-     * @return \Doctrine\Common\Collections\Collection
+     * @return \Doctrine\Common\Collections\Collection|ContestProblem[]
      */
     public function getContestProblems()
     {
