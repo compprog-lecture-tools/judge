@@ -234,7 +234,7 @@ class Scoreboard
             );
 
             if ($scoreRow->getSubmissions($this->restricted) + $scoreRow->getPending($this->restricted) > 0) {
-                $this->scores[$scoreRow->getTeam()->getTeamid()]->setActive(true);
+                $this->scores[$scoreRow->getTeam()->getTeamid()]->active = true;
             }
 
             if ($scoreRow->getIsCorrect($this->restricted)) {
@@ -308,7 +308,7 @@ class Scoreboard
                     $problemSummary->updateBestTime($sortOrder, $problemMatrixItem->time);
                 }
                 // aggregate minimum runtime of correct submissions for each problem
-                if ($problemMatrixItem->isCorrect()) {
+                if ($problemMatrixItem->isCorrect) {
                     $problemSummary->updateBestRuntime($sortOrder, $problemMatrixItem->runtime);
                 }
             }
@@ -344,8 +344,8 @@ class Scoreboard
         }
 
         // Then by activity
-        if ($a->isActive() != $b->isActive()) {
-            return $b->isActive() <=> $a->isActive();
+        if ($a->active != $b->active) {
+            return $b->active <=> $a->active;
         }
 
         // Else, order by teamname alphabetically
@@ -548,7 +548,7 @@ class Scoreboard
     public function isFastestImplementation(Team $team, ContestProblem $problem): bool
     {
         $item = $this->matrix[$team->getTeamid()][$problem->getProbid()];
-        if (!$item->isCorrect()) {
+        if (!$item->isCorrect) {
             return false;
         }
         $sortorder = $team->getCategory()->getSortorder();

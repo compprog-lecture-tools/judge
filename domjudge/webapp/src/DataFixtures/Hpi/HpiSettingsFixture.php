@@ -8,7 +8,7 @@ use App\Entity\Configuration;
 use App\Entity\Language;
 use App\Entity\TeamCategory;
 use Doctrine\Bundle\FixturesBundle\Fixture;
-use Doctrine\Common\Persistence\ObjectManager;
+use Doctrine\Persistence\ObjectManager;
 
 /**
  * Sets up the settings and language settings for an HPI setup.
@@ -41,10 +41,11 @@ class HpiSettingsFixture extends Fixture
             $manager->persist($participants);
         }
 
-        $configRepo = $manager->getRepository(Configuration::class);
-        foreach (self::$settings as $name => $value) {
-            $configRepo->findOneBy(['name' => $name])->setValue($value);
-        }
+        # TODO: this way of doing it does not work anymore?
+        #$configRepo = $manager->getRepository(Configuration::class);
+        #foreach (self::$settings as $name => $value) {
+            #$configRepo->findOneBy(['name' => $name])->setValue($value);
+        #}
 
         $langRepo = $manager->getRepository(Language::class);
         $langRepo->find('cpp')->setAllowSubmit(false);

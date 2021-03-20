@@ -816,6 +816,7 @@ class SubmissionService
         return $result;
     }
 
+    /**
      * Get a response object containing the given submission as a ZIP
      *
      * @param Submission $submission

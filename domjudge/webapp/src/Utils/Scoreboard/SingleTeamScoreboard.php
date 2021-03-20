@@ -82,7 +82,7 @@ class SingleTeamScoreboard extends Scoreboard
         if ($this->rankCache !== null) {
             $teamScore->numPoints += $this->rankCache->getPointsRestricted();
             $teamScore->totalTime += $this->rankCache->getTotaltimeRestricted();
-            $teamScore->totalRuntime += this->rankCache->getTotalruntimeRestricted());
+            $teamScore->totalRuntime += $this->rankCache->getTotalruntimeRestricted();
         }
         $teamScore->rank = $this->teamRank;
 

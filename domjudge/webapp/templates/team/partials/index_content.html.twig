@@ -18,38 +18,32 @@
     </div>
 
     <div class="row">
-        {% if clarifications_enabled %}
-            <div class="col">
-        {% else %}
             <div class="col-md-12 col-lg-9 col-xl-6 mx-auto">
-        {% endif %}
             <h3 class="teamoverview">Submissions</h3>
 
             {% include 'team/partials/submission_list.html.twig' %}
         </div>
-        {% if clarifications_enabled %}
-            <div class="col">
-                <h3 class="teamoverview">Clarifications</h3>
-                {% if clarifications is empty %}
-                    <p class="nodata">No clarifications.</p>
-                {% else %}
-                    {% include 'team/partials/clarification_list.html.twig' with {clarifications: clarifications} %}
-                {% endif %}
+        <div class="col">
+            <h3 class="teamoverview">Clarifications</h3>
+            {% if clarifications is empty %}
+                <p class="nodata">No clarifications.</p>
+            {% else %}
+                {% include 'team/partials/clarification_list.html.twig' with {clarifications: clarifications} %}
+            {% endif %}
 
-                <h3 class="teamoverview">Clarification Requests</h3>
-                {% if clarificationRequests is empty %}
-                    <p class="nodata">No clarification request.</p>
-                {% else %}
-                    {% include 'team/partials/clarification_list.html.twig' with {clarifications: clarificationRequests} %}
-                {% endif %}
+            <h3 class="teamoverview">Clarification Requests</h3>
+            {% if clarificationRequests is empty %}
+                <p class="nodata">No clarification request.</p>
+            {% else %}
+                {% include 'team/partials/clarification_list.html.twig' with {clarifications: clarificationRequests} %}
+            {% endif %}
 
-                <div class="m-1">
-                    <a href="{{ path('team_clarification_add') }}" class="btn btn-secondary btn-sm" data-ajax-modal>
-                        request clarification
-                    </a>
-                </div>
+            <div class="m-1">
+                <a href="{{ path('team_clarification_add') }}" class="btn btn-secondary btn-sm" data-ajax-modal>
+                    request clarification
+                </a>
             </div>
-        {% endif %}
+        </div>
     </div>
 {% endif %}
 

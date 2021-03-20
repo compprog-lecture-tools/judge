@@ -35,11 +35,9 @@
             {% endif %}
 
             {% if is_granted('ROLE_JURY') %}
-                {% if clarifications_enabled %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ path('jury_clarifications') }}" id="menu_clarifications"><i class="fas fa-comments"></i> clarifications <span class="badge badge-info" id="num-alerts-clarifications"></span></a>
-                    </li>
-                {% endif %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ path('jury_clarifications') }}" id="menu_clarifications"><i class="fas fa-comments"></i> clarifications <span class="badge badge-info" id="num-alerts-clarifications"></span></a>
+                </li>
 
 
                 <li class="nav-item">
@@ -115,6 +113,6 @@
             {% include 'partials/menu_change_contest.html.twig' with {contest: current_contest, contests: current_contests, change_path: 'jury_change_contest', show_no_contest: true} %}
         </ul>
         {% include 'partials/menu_countdown.html.twig' with {contest: current_contest} %}
-        {% include 'partials/hpilogo.html.twig' %}
+        {% include 'partials/logo.html.twig' %}
     </div>
 </nav>

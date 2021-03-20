@@ -1,4 +1,4 @@
-FROM debian:buster
+FROM debian:latest
 LABEL maintainer="DOMjudge team <team@domjudge.org>"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -28,11 +28,14 @@ RUN apt-get update \
     default-jre-headless \
     default-jdk ghc fp-compiler \
     supervisor apache2-utils lsb-release \
-    libcurl4-gnutls-dev libjsoncpp-dev libmagic-dev python python-pip \
+    libcurl4-gnutls-dev libjsoncpp-dev libmagic-dev python3-pip \
     enscript lpr ca-certificates less vim \
     python3-sphinx python3-sphinx-rtd-theme \
-    && pip install Pygments \
+    python3-yaml fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# Needed for building the docs
+RUN pip3 install pygments rst2pdf
 
 # Forward nginx request and error logs to standard output/error. Also create directory for PHP-FPM socket
 RUN ln -sf /dev/stdout /var/log/nginx/access.log \

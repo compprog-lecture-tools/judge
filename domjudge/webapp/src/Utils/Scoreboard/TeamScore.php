@@ -40,7 +40,7 @@ class TeamScore
     /**
      * @var bool
      */
-    protected $active;
+    public $active;
 
     /**
      * TeamScore constructor.

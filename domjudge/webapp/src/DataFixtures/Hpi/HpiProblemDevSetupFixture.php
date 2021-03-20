@@ -6,7 +6,7 @@ namespace App\DataFixtures\Hpi;
 
 use App\Entity\Contest;
 use App\Entity\User;
-use Doctrine\Common\Persistence\ObjectManager;
+use Doctrine\Persistence\ObjectManager;
 
 /**
  * Sets up convenience features for a problem development setup.

@@ -160,7 +160,7 @@ then
 fi
 
 echo "[..] Setting up cgroups"
-bin/create_cgroups
+judge/create_cgroups
 echo "[ok] cgroups set up"; echo
 
 echo "[..] Adding sudoers configuration"

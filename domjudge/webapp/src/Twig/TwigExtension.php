@@ -147,7 +147,6 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
             'current_public_contest' => $this->dj->getCurrentContest(-1),
             'current_public_contests' => $this->dj->getCurrentContests(-1),
             'have_printing' => $this->config->get('print_command'),
-            'clarifications_enabled' => $this->config->get('clar_enable'),
             'refresh_flag' => $refresh_flag,
             'icat_url' => defined('ICAT_URL') ? ICAT_URL : null,
             'external_ccs_submission_url' => $this->config->get('external_ccs_submission_url'),

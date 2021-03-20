@@ -4,7 +4,7 @@
 namespace App\DataFixtures\Hpi;
 
 
-use Doctrine\Common\Persistence\ObjectManager;
+use Doctrine\Persistence\ObjectManager;
 
 /**
  * Sets up convenience features for a judge development setup.

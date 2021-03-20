@@ -9,7 +9,7 @@ use App\Entity\Team;
 use App\Entity\TeamCategory;
 use App\Entity\User;
 use Doctrine\Bundle\FixturesBundle\Fixture;
-use Doctrine\Common\Persistence\ObjectManager;
+use Doctrine\Persistence\ObjectManager;
 use Symfony\Component\Security\Core\Encoder\UserPasswordEncoderInterface;
 
 abstract class AbstractSetupFixture extends Fixture

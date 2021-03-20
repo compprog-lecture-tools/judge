@@ -146,7 +146,6 @@ class SubmissionController extends BaseController
     {
         $verificationRequired = (bool)$this->config->get('verification_required');;
         $showCompile      = $this->config->get('show_compile');
-        $showSource       = $this->dj->dbconfig_get('show_source_to_teams', false);
         $showSampleOutput = $this->config->get('show_sample_output');
         $allowDownload    = (bool)$this->config->get('allow_team_submission_download');
         $user             = $this->dj->getUser();
@@ -222,7 +221,6 @@ class SubmissionController extends BaseController
             'judging' => $judging,
             'verificationRequired' => $verificationRequired,
             'showCompile' => $showCompile,
-            'showSource' => $showSource,
             'allowDownload' => $allowDownload,
             'showSampleOutput' => $showSampleOutput,
             'runs' => $runs,
@@ -260,6 +258,7 @@ class SubmissionController extends BaseController
         return $response;
     }
 
+    /**
      * @Route("/submission/{submitId<\d+>}/download", name="team_submission_download")
      * @param int $submitId
      *
