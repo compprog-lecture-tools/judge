@@ -42,7 +42,6 @@ RUN useradd -m domjudge \
 	&& mkdir -p /run/php \
 	&& chown -R domjudge: /opt/domjudge \
 	&& chown -R www-data: /opt/domjudge/domserver/tmp \
-	&& chown -R www-data: /opt/domjudge/domserver/submissions \
 	&& chmod 755 /scripts/start.sh \
 	&& chmod 755 /scripts/bin/* \
 	&& ln -s /scripts/bin/* /usr/bin/
